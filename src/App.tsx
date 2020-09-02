@@ -15,7 +15,10 @@ export const TOLERANCE = 10;
 
 interface State {
   cursor: React.CSSProperties["cursor"];
+  dragging: string | null;
   initialId: string | null;
+  initialX: number | null;
+  initialY: number | null;
   widgets: Record<string, Widget>;
 }
 
@@ -24,15 +27,12 @@ class App extends React.PureComponent<{}, State> {
 
   state: State = {
     cursor: "auto",
+    dragging: null,
     initialId: null,
+    initialX: null,
+    initialY: null,
     widgets: {},
   };
-
-  constructor(props: any) {
-    super(props);
-
-    (window as any).sarlanga = this;
-  }
 
   handleContextMenu = (id: string, e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -165,18 +165,23 @@ class App extends React.PureComponent<{}, State> {
     }));
   };
 
-  handleDrag = (draggingWidgetId: string, spec: Partial<StickyWidget>) => {
+  handleDrag = (e: React.MouseEvent<HTMLDivElement>) => {
+    const { clientX, clientY } = e;
     this.setState((prevState) => {
+      if (!prevState.dragging || !prevState.initialX || !prevState.initialY)
+        return { ...prevState };
       const dragged = {
-        ...prevState.widgets[draggingWidgetId],
-        ...spec,
+        ...prevState.widgets[prevState.dragging],
       } as StickyWidget;
+
+      dragged.x = dragged.x + clientX - prevState.initialX;
+      dragged.y = dragged.y + clientY - prevState.initialY;
 
       const connected = Object.values(prevState.widgets)
         .filter(
           (w) =>
             w.type === "arrow" &&
-            (w.start === draggingWidgetId || w.end === draggingWidgetId)
+            (w.start === prevState.dragging || w.end === prevState.dragging)
         )
         .reduce((acc, cur) => {
           const flecha = cur as ArrowWidget;
@@ -187,7 +192,7 @@ class App extends React.PureComponent<{}, State> {
           const startPoint = flecha.points[0];
           const endPoint = flecha.points[1];
 
-          if (flecha.end === draggingWidgetId) {
+          if (flecha.end === prevState.dragging) {
             if (startPoint.type === "right") {
               // If the start.x + tolerance is lower than end.x, we keep things
               // as they are
@@ -338,7 +343,7 @@ class App extends React.PureComponent<{}, State> {
             }
           }
 
-          if (flecha.start === draggingWidgetId) {
+          if (flecha.start === prevState.dragging) {
             const endWidget = prevState.widgets[
               flecha.end || ""
             ] as StickyWidget;
@@ -502,13 +507,31 @@ class App extends React.PureComponent<{}, State> {
         }, {} as Record<string, Widget>);
 
       return {
+        initialX: clientX,
+        initialY: clientY,
         widgets: {
           ...prevState.widgets,
-          [draggingWidgetId]: dragged,
+          [dragged.id]: dragged,
           ...connected,
         },
       };
     });
+  };
+
+  handleDragStart = (id: string, e: React.MouseEvent<HTMLDivElement>) => {
+    const { clientX: initialX, clientY: initialY } = e;
+
+    if (e.button !== 0) return;
+
+    this.setState({
+      dragging: id,
+      initialX,
+      initialY,
+    });
+  };
+
+  handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
+    this.setState({ dragging: null });
   };
 
   handleRef = (ref: HTMLDivElement) => (this.ref = ref);
@@ -520,6 +543,8 @@ class App extends React.PureComponent<{}, State> {
         style={{ cursor }}
         className="App"
         onDoubleClick={this.handleDoubleClick}
+        onMouseMove={this.handleDrag}
+        onMouseUp={this.handleMouseUp}
         ref={this.handleRef}
       >
         {Object.values(widgets).map((w) => {
@@ -528,7 +553,7 @@ class App extends React.PureComponent<{}, State> {
               <Sticky
                 cursor={cursor}
                 onContextMenu={this.handleContextMenu}
-                onDrag={this.handleDrag}
+                onDragStart={this.handleDragStart}
                 widget={w}
                 key={w.id}
               />

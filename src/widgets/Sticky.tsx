@@ -5,7 +5,7 @@ import { StickyWidget } from "../types";
 interface PropTypes {
   cursor: React.CSSProperties["cursor"];
   onContextMenu: (id: string, e: React.MouseEvent<HTMLDivElement>) => void;
-  onDrag: (id: string, spec: Partial<StickyWidget>) => void;
+  onDragStart: (id: string, e: React.MouseEvent<HTMLDivElement>) => void;
   widget: StickyWidget;
 }
 
@@ -21,27 +21,9 @@ class Sticky extends React.PureComponent<PropTypes> {
   };
 
   handleDragStart = (e: React.MouseEvent<HTMLDivElement>) => {
-    this.dragging = true;
-    this.initialX = e.clientX;
-    this.initialY = e.clientY;
-  };
+    const { onDragStart, widget } = this.props;
 
-  handleDragMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!this.dragging) return;
-
-    const { onDrag, widget } = this.props;
-
-    onDrag(widget.id, {
-      x: e.clientX - this.initialX + widget.x,
-      y: e.clientY - this.initialY + widget.y,
-    });
-
-    this.initialX = e.clientX;
-    this.initialY = e.clientY;
-  };
-
-  handleDragEnd = (e: React.MouseEvent<HTMLDivElement>) => {
-    this.dragging = false;
+    onDragStart(widget.id, e);
   };
 
   render() {
@@ -53,8 +35,6 @@ class Sticky extends React.PureComponent<PropTypes> {
       <div
         onContextMenu={this.handleContextMenu}
         onMouseDown={this.handleDragStart}
-        onMouseMove={this.handleDragMove}
-        onMouseUp={this.handleDragEnd}
         style={{
           top: y,
           left: x,
