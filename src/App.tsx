@@ -19,10 +19,11 @@ interface State {
   initialId: string | null;
   initialX: number | null;
   initialY: number | null;
+  selected: string | null;
   widgets: Record<string, Widget>;
 }
 
-class App extends React.PureComponent<{}, State> {
+class App extends React.Component<{}, State> {
   ref: HTMLDivElement | null = null;
 
   state: State = {
@@ -31,6 +32,7 @@ class App extends React.PureComponent<{}, State> {
     initialId: null,
     initialX: null,
     initialY: null,
+    selected: null,
     widgets: {},
   };
 
@@ -158,6 +160,7 @@ class App extends React.PureComponent<{}, State> {
   handleDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const s = stickyFactory({ x: e.clientX, y: e.clientY });
     this.setState((prevState) => ({
+      selected: s.id,
       widgets: {
         ...prevState.widgets,
         [s.id]: s,
@@ -520,14 +523,40 @@ class App extends React.PureComponent<{}, State> {
 
   handleDragStart = (id: string, e: React.MouseEvent<HTMLDivElement>) => {
     const { clientX: initialX, clientY: initialY } = e;
+    e.stopPropagation();
 
     if (e.button !== 0) return;
 
     this.setState({
       dragging: id,
+      selected: id,
       initialX,
       initialY,
     });
+  };
+
+  handleKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.key === "Backspace" || e.key === "Delete") && this.state.selected) {
+      this.setState((prevState) => {
+        const id = prevState.selected || "";
+        const prevWidgets = prevState.widgets;
+        delete prevWidgets[id];
+
+        Object.values(prevWidgets).forEach((w) => {
+          if (w.type === "arrow" && (w.start === id || w.end === id))
+            delete prevWidgets[w.id];
+        });
+        return {
+          ...prevState,
+          selected: null,
+          widgets: { ...prevWidgets },
+        };
+      });
+    }
+  };
+
+  handleMouseDown = () => {
+    this.setState({ selected: null });
   };
 
   handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -537,13 +566,16 @@ class App extends React.PureComponent<{}, State> {
   handleRef = (ref: HTMLDivElement) => (this.ref = ref);
 
   render() {
-    const { cursor, widgets } = this.state;
+    const { cursor, selected, widgets } = this.state;
     return (
       <div
         style={{ cursor }}
         className="App"
+        tabIndex={1}
         onDoubleClick={this.handleDoubleClick}
+        onKeyDown={this.handleKeyDown}
         onMouseMove={this.handleDrag}
+        onMouseDown={this.handleMouseDown}
         onMouseUp={this.handleMouseUp}
         ref={this.handleRef}
       >
@@ -554,6 +586,7 @@ class App extends React.PureComponent<{}, State> {
                 cursor={cursor}
                 onContextMenu={this.handleContextMenu}
                 onDragStart={this.handleDragStart}
+                selected={selected === w.id}
                 widget={w}
                 key={w.id}
               />

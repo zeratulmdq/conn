@@ -6,10 +6,11 @@ interface PropTypes {
   cursor: React.CSSProperties["cursor"];
   onContextMenu: (id: string, e: React.MouseEvent<HTMLDivElement>) => void;
   onDragStart: (id: string, e: React.MouseEvent<HTMLDivElement>) => void;
+  selected: boolean;
   widget: StickyWidget;
 }
 
-class Sticky extends React.PureComponent<PropTypes> {
+class Sticky extends React.Component<PropTypes> {
   dragging: boolean = false;
   initialX: number = 0;
   initialY: number = 0;
@@ -29,6 +30,7 @@ class Sticky extends React.PureComponent<PropTypes> {
   render() {
     const {
       cursor,
+      selected,
       widget: { x, y },
     } = this.props;
     return (
@@ -39,6 +41,7 @@ class Sticky extends React.PureComponent<PropTypes> {
           top: y,
           left: x,
           cursor: cursor === "crosshair" ? "crosshair" : "pointer",
+          border: selected ? "2px solid blue" : "none",
         }}
         className="Sticky"
       />
