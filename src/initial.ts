@@ -38,6 +38,9 @@ const widgets: Record<string, Widget> = {
     end: "s2",
     height: 0,
     width: 0,
+    chartBranchSide: null,
+    chartBranchPosition: null,
+    arrowType: "initial",
   },
   a2: {
     type: "arrow",
@@ -52,6 +55,9 @@ const widgets: Record<string, Widget> = {
     end: "s3",
     height: 0,
     width: 0,
+    chartBranchSide: null,
+    chartBranchPosition: null,
+    arrowType: "initial",
   },
 };
 
