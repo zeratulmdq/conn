@@ -16,12 +16,20 @@ export interface Point {
   type: PointType;
 }
 
+// initial: initial simple arrow, centered to the connected widgets on both ends, bent into 3 segments having the same length in both parallel segments.
+// chartBranch: created from an 'initial' arrow, centered to the connected widgets on both ends, bent into 3 segments, can share inital segment with other 'chartBranch' arrows, 1st segment size stays put.
+// chartSide: created from an 'initial' arrow, moved to the side of a group of 'chartBranch' arrows and can be on any point of both connected widgets.
+export type ArrowType = "initial" | "chartBranch" | "chartSide";
+
 export type StickyWidget = W & { type: "sticky" };
 export type ArrowWidget = W & {
   type: "arrow";
   points: Point[];
   start: string | null;
   end: string | null;
+  arrowType: ArrowType;
+  chartBranchSide: PointType | null;
+  chartBranchPosition: number | null;
 };
 
 export type Widget = StickyWidget | ArrowWidget;
@@ -45,4 +53,7 @@ export const arrowFactory = (spec: Partial<ArrowWidget>): ArrowWidget => ({
   start: spec.start || null,
   end: spec.end || null,
   points: [],
+  arrowType: "initial",
+  chartBranchSide: null,
+  chartBranchPosition: null,
 });

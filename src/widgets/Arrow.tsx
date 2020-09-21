@@ -1,17 +1,19 @@
 import React from "react";
 import "./Sticky.css";
-import { ArrowWidget, Point } from "../types";
+import { ArrowWidget, Point, PointType } from "../types";
 
 interface PropTypes {
   widget: ArrowWidget;
 }
 
-const pathGenerator = (points: Point[]) => {
+const pathGenerator = (points: Point[], chartBranchSide: PointType | null, chartBranchPosition: number | null) => {
   const start = points[0];
   const end = points[1];
+  const isHorizontalConnection = start.type === "right" || start.type === "left";
 
-  if (start.type === "right" || start.type === "left") {
-    if (start.y === end.y) {
+  // straight line
+  if((isHorizontalConnection && start.y === end.y) ||
+    (!isHorizontalConnection && start.x === end.x)) {
       const d = `M ${start.x} ${start.y} L ${end.x} ${end.y}`;
       return [
         <path d={d} stroke="red" strokeWidth="2" fill="none" />,
@@ -23,51 +25,23 @@ const pathGenerator = (points: Point[]) => {
           fill="#5cb85c"
         ></circle>,
       ];
-    }
-
-    const midDistanceX = (end.x - start.x) / 2;
-
-    const d1 = `M ${start.x} ${start.y} L ${start.x + midDistanceX} ${start.y}`;
-    const d2 = `M ${start.x + midDistanceX} ${start.y} L ${
-      start.x + midDistanceX
-    } ${end.y}`;
-    const d3 = `M ${start.x + midDistanceX} ${end.y} L ${end.x} ${end.y}`;
-
-    return [
-      <path d={d1} stroke="red" strokeWidth="2" fill="none" />,
-      <path d={d2} stroke="red" strokeWidth="2" fill="none" />,
-      <path d={d3} stroke="red" strokeWidth="2" fill="none" />,
-      <circle
-        cx={`${end.x}`}
-        cy={`${end.y}`}
-        r="5"
-        stroke="#5cb85c"
-        fill="#5cb85c"
-      ></circle>,
-    ];
   }
 
-  if (start.x === end.x) {
-    const d = `M ${start.x} ${start.y} L ${end.x} ${end.y}`;
-    return [
-      <path d={d} stroke="red" strokeWidth="2" fill="none" />,
-      <circle
-        cx={`${end.x}`}
-        cy={`${end.y}`}
-        r="5"
-        stroke="#5cb85c"
-        fill="#5cb85c"
-      ></circle>,
-    ];
+  // 3-segments line
+  const midDistance = isHorizontalConnection ? (end.x - start.x) / 2 : (end.y - start.y) / 2;
+  let segment2Position = isHorizontalConnection ? start.x + midDistance: start.y + midDistance;
+  if(chartBranchSide && chartBranchPosition && chartBranchSide === start.type) {
+    segment2Position = chartBranchPosition;
   }
 
-  const midDistanceY = (end.y - start.y) / 2;
+  const p1 = `${start.x} ${start.y}`;
+  const p2 = isHorizontalConnection ? `${segment2Position} ${start.y}` : ` ${start.x} ${segment2Position}`;
+  const p3 = isHorizontalConnection ? `${segment2Position} ${end.y}` : ` ${end.x} ${segment2Position}`;
+  const p4 = `${end.x} ${end.y}`;
 
-  const d1 = `M ${start.x} ${start.y} L ${start.x} ${start.y + midDistanceY}`;
-  const d2 = `M ${start.x} ${start.y + midDistanceY} L ${end.x} ${
-    start.y + midDistanceY
-  }`;
-  const d3 = `M ${end.x} ${start.y + midDistanceY} L ${end.x} ${end.y}`;
+  const d1 = `M ${p1} L ${p2}`;
+  const d2 = `M ${p2} L ${p3}`;
+  const d3 = `M ${p3} L ${p4}`;
 
   return [
     <path d={d1} stroke="red" strokeWidth="2" fill="none" />,
@@ -91,7 +65,7 @@ class Arrow extends React.PureComponent<PropTypes> {
         xmlns="http://www.w3.org/2000/svg"
         version="1.1"
       >
-        {pathGenerator(this.props.widget.points)}
+        {pathGenerator(this.props.widget.points, this.props.widget.chartBranchSide, this.props.widget.chartBranchPosition)}
       </svg>
     );
   }

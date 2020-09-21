@@ -4,7 +4,7 @@ import { StickyWidget } from "../types";
 
 interface PropTypes {
   cursor: React.CSSProperties["cursor"];
-  onContextMenu: (id: string, e: React.MouseEvent<HTMLDivElement>) => void;
+  onRightClick: (id: string, e: React.MouseEvent<HTMLDivElement>) => void;
   onDragStart: (id: string, e: React.MouseEvent<HTMLDivElement>) => void;
   selected: boolean;
   widget: StickyWidget;
@@ -16,7 +16,7 @@ class Sticky extends React.Component<PropTypes> {
   initialY: number = 0;
 
   handleContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
-    const { onContextMenu, widget } = this.props;
+    const { onRightClick: onContextMenu, widget } = this.props;
 
     onContextMenu(widget.id, e);
   };
@@ -31,7 +31,7 @@ class Sticky extends React.Component<PropTypes> {
     const {
       cursor,
       selected,
-      widget: { x, y },
+      widget: { x, y , width, height},
     } = this.props;
     return (
       <div
@@ -40,6 +40,8 @@ class Sticky extends React.Component<PropTypes> {
         style={{
           top: y,
           left: x,
+          width: width,
+          height: height,
           cursor: cursor === "crosshair" ? "crosshair" : "pointer",
           border: selected ? "2px solid blue" : "none",
         }}
