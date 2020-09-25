@@ -78,17 +78,18 @@ class App extends React.Component<{}, State> {
       const startWidget = prevState.widgets[prevState.initialId || ""];
       const endWidget = prevState.widgets[id];
       const points: Point[] = [];
+      const isHorizontalConnection = Math.abs(
+        (startWidget.x - endWidget.x) / (startWidget.y - endWidget.y)
+      ) > 1;
+
       const arrow = {
         ...arrowFactory({ start: prevState.initialId, end: id }),
         points,
+        initialIsHorizontal: isHorizontalConnection,
       };
-      // relation > 1 horizontal line
-      const relation = Math.abs(
-        (startWidget.x - endWidget.x) / (startWidget.y - endWidget.y)
-      );
 
       if (startWidget.x + startWidget.width + TOLERANCE < endWidget.x) {
-        if (relation > 1) {
+        if (isHorizontalConnection) {
           points[0] = {
             x: startWidget.x + startWidget.width,
             y: startWidget.y + startWidget.height / 2,
@@ -125,7 +126,7 @@ class App extends React.Component<{}, State> {
           }
         }
       } else {
-        if (relation > 1) {
+        if (isHorizontalConnection) {
           points[0] = {
             x: startWidget.x,
             y: startWidget.y + startWidget.height / 2,
@@ -285,6 +286,15 @@ class App extends React.Component<{}, State> {
           (w.start === prevState.dragging || w.end === prevState.dragging)
       ).map(w=> w as ArrowWidget)
       .reduce((acc, arrow) => {
+
+        if(this.isChartSideArrow(arrow, prevState.widgets)) {
+          const startWidget = prevState.widgets[arrow.start || ""] as StickyWidget;
+          const endWidget = prevState.widgets[arrow.end || ""] as StickyWidget;
+          this.updateArrowChartSide(arrow, startWidget, endWidget);
+          arrow.arrowType = "chartSide";
+          // swap axis for new chartSide creation
+          arrow.initialIsHorizontal = !arrow.initialIsHorizontal;
+        }
         
         if(arrow.end === prevState.dragging) {
           this.updateArrowChartBranch(arrow, prevState.widgets, false);
@@ -311,30 +321,16 @@ class App extends React.Component<{}, State> {
   handleRef = (ref: HTMLDivElement) => (this.ref = ref);
 
   updateArrowChartBranch(arrow: ArrowWidget, widgets: Record<string, Widget>, ignoreLoneSide: boolean) {
-    if(arrow.arrowType === "chartSide") return;
+    // if(arrow.arrowType === "chartSide") return;
 
-    // don't recalculate if chartSide didn't change
+    // don't recalculate if chartBranchSide didn't change
     if(!arrow.chartBranchSide || arrow.chartBranchSide !== arrow.points[0].type) {
-
-      // all arrows connected to "start" widget
-      const originArrows = Object.values(widgets)
-      .filter(
-        (w) =>
-          w.type === "arrow" &&
-          (w.start === arrow.start)
-      ).map(w=> w as ArrowWidget);
       
-      // find another arrow that share same origin point and already has chartBranchPosition fixed
-      const chartBranchArrow = originArrows.find(connectedArrow =>
-        connectedArrow !== arrow &&
-        connectedArrow.arrowType === "chartBranch" &&
-        connectedArrow.points[0].type === arrow.points[0].type &&
-        connectedArrow.chartBranchPosition);
-
+      const chartBranchArrow = this.getSharedChartBranch(arrow, widgets);
       // don't force chartBranching while dragging on a new side of the origin widget
       if(ignoreLoneSide && !chartBranchArrow) return;
         
-      console.log(`updateArrowChartBranch originType: ${arrow.points[0].type} chartBranchArrow: ${chartBranchArrow}  chartBranchPosition: ${chartBranchArrow?.chartBranchPosition}`)
+      // console.log(`updateArrowChartBranch originType: ${arrow.points[0].type} chartBranchArrow: ${chartBranchArrow}  chartBranchPosition: ${chartBranchArrow?.chartBranchPosition}`)
       arrow.arrowType = "chartBranch";
       arrow.chartBranchSide = arrow.points[0].type;
       if(chartBranchArrow) {
@@ -349,51 +345,53 @@ class App extends React.Component<{}, State> {
       }
     }
   }
+
+  // find another arrow that share same origin point and already has chartBranchPosition fixed
+  getSharedChartBranch(arrow: ArrowWidget, widgets: Record<string, Widget>) {
+    // all arrows connected to "start" widget
+    const originArrows = Object.values(widgets)
+    .filter(
+      (w) =>
+        w.type === "arrow" &&
+        (w.start === arrow.start)
+    ).map(w=> w as ArrowWidget);
+
+    return originArrows.find(connectedArrow =>
+      connectedArrow !== arrow &&
+      connectedArrow.arrowType === "chartBranch" &&
+      connectedArrow.points[0].type === arrow.points[0].type &&
+      connectedArrow.chartBranchPosition);
+  }
   
-  // updates arrow points (start/end), both position and type
-  updateArrow(arrow: ArrowWidget, widgets: Record<string, Widget>, draggingWidgetId: string | null, draggedWidget: StickyWidget) {
+  // updates arrow points (start/end) in both position and type
+  updateArrow(arrow: ArrowWidget, widgets: Record<string, Widget>, draggingWidgetId: string | null, draggingWidget: StickyWidget) {
     const startPoint = arrow.points[0];
     const endPoint = arrow.points[1];
+    
+    const startWidget = arrow.start === draggingWidgetId ? draggingWidget :
+    widgets[arrow.start || ""] as StickyWidget;
+    const endWidget = arrow.end === draggingWidgetId ? draggingWidget :
+    widgets[arrow.end || ""] as StickyWidget;
+
+    // initial dummy values
+    let points: Point[] = [{type: startPoint.type, x: 0, y: 0}, {type: endPoint.type, x: 1, y: 0}];
 
     if (arrow.end === draggingWidgetId) {
-      const startWidget = widgets[
-        arrow.start || ""
-      ] as StickyWidget;
 
       if (startPoint.type === "right") {
         // If the start.x + tolerance is lower than end.x, we keep things
         // as they are
         if (startPoint.x + TOLERANCE < endPoint.x) {
-          arrow.points[1] = {
-            type: "left",
-            x: draggedWidget.x,
-            y: draggedWidget.y + draggedWidget.height / 2,
-          };
+          points[1].type = "left";
           // Else, we check which point is higher so we can switch our point
           // types and re-order the connections
         } else if (startPoint.y + TOLERANCE < endPoint.y) {
-          arrow.points[0] = {
-            type: "bottom",
-            x: startWidget.x + startWidget.width / 2,
-            y: startWidget.y + startWidget.height,
-          };
-          arrow.points[1] = {
-            type: "top",
-            x: draggedWidget.x + draggedWidget.width / 2,
-            y: draggedWidget.y,
-          };
+          points[0].type = "bottom";
+          points[1].type = "top";
           // Final else, it's the only remaining option
         } else {
-          arrow.points[0] = {
-            type: "top",
-            x: startWidget.x + startWidget.width / 2,
-            y: startWidget.y,
-          };
-          arrow.points[1] = {
-            type: "bottom",
-            x: draggedWidget.x + draggedWidget.width / 2,
-            y: draggedWidget.y + draggedWidget.height,
-          };
+          points[0].type = "top";
+          points[1].type = "bottom";
         }
       }
 
@@ -401,36 +399,16 @@ class App extends React.Component<{}, State> {
         // If the start.x + tolerance is lower than end.x, we keep things
         // as they are
         if (startPoint.x - TOLERANCE < endPoint.x) {
-          arrow.points[1] = {
-            type: "right",
-            x: draggedWidget.x + draggedWidget.width,
-            y: draggedWidget.y + draggedWidget.height / 2,
-          };
+          points[1].type = "right";
           // Else, we check which point is higher so we can swith our point
           // types and re-order the connections
         } else if (startPoint.y + TOLERANCE < endPoint.y) {
-          arrow.points[0] = {
-            type: "bottom",
-            x: startWidget.x + startWidget.width / 2,
-            y: startWidget.y + startWidget.height,
-          };
-          arrow.points[1] = {
-            type: "top",
-            x: draggedWidget.x + draggedWidget.width / 2,
-            y: draggedWidget.y,
-          };
+          points[0].type = "bottom";
+          points[1].type = "top";
           // Final else, it's the only remaining option
         } else {
-          arrow.points[0] = {
-            type: "top",
-            x: startWidget.x + startWidget.width / 2,
-            y: startWidget.y,
-          };
-          arrow.points[1] = {
-            type: "bottom",
-            x: draggedWidget.x + draggedWidget.width / 2,
-            y: draggedWidget.y + draggedWidget.height,
-          };
+          points[0].type = "top";
+          points[1].type = "bottom";
         }
       }
 
@@ -439,36 +417,16 @@ class App extends React.Component<{}, State> {
         // If the start.y + tolerance is lower than end.y, we keep things
         // as they are
         if (startPoint.y + TOLERANCE < endPoint.y) {
-          arrow.points[1] = {
-            type: "top",
-            x: draggedWidget.x + draggedWidget.width / 2,
-            y: draggedWidget.y,
-          };
+          points[1].type = "top";
           // Else, we check if the start point is "lefter" than the end
           // point
         } else if (startPoint.x + TOLERANCE < endPoint.x) {
-          arrow.points[0] = {
-            type: "right",
-            x: startWidget.x + startWidget.width,
-            y: startWidget.y + startWidget.height / 2,
-          };
-          arrow.points[1] = {
-            type: "left",
-            x: draggedWidget.x,
-            y: draggedWidget.y + draggedWidget.height / 2,
-          };
+          points[0].type = "right";
+          points[1].type = "left";
           // Finally, we know the start point is "righter" than the end one
         } else {
-          arrow.points[0] = {
-            type: "left",
-            x: startWidget.x,
-            y: startWidget.y + startWidget.width / 2,
-          };
-          arrow.points[1] = {
-            type: "right",
-            x: draggedWidget.x + draggedWidget.width,
-            y: draggedWidget.y + draggedWidget.height / 2,
-          };
+          points[0].type = "left";
+          points[1].type = "right";
         }
       }
 
@@ -476,79 +434,36 @@ class App extends React.Component<{}, State> {
         // If the start.y + tolerance is lower than end.y, we keep things
         // as they are
         if (startPoint.y - TOLERANCE > endPoint.y) {
-          arrow.points[1] = {
-            type: "bottom",
-            x: draggedWidget.x + draggedWidget.width / 2,
-            y: draggedWidget.y + draggedWidget.height,
-          };
+          points[1].type = "bottom";
           // Else, we check if the start point is "lefter" than the end
           // point
         } else if (startPoint.x + TOLERANCE < endPoint.x) {
-          arrow.points[0] = {
-            type: "right",
-            x: startWidget.x + startWidget.width,
-            y: startWidget.y + startWidget.height / 2,
-          };
-          arrow.points[1] = {
-            type: "left",
-            x: draggedWidget.x,
-            y: draggedWidget.y + draggedWidget.height / 2,
-          };
+          points[0].type = "right";
+          points[1].type = "left";
           // Finally, we know the start point is "righter" than the end one
         } else {
-          arrow.points[0] = {
-            type: "left",
-            x: startWidget.x,
-            y: startWidget.y + startWidget.width / 2,
-          };
-          arrow.points[1] = {
-            type: "right",
-            x: draggedWidget.x + draggedWidget.width,
-            y: draggedWidget.y + draggedWidget.height / 2,
-          };
+          points[0].type = "left";
+          points[1].type = "right";
         }
       }
     }
 
     if (arrow.start === draggingWidgetId) {
-      const endWidget = widgets[
-        arrow.end || ""
-      ] as StickyWidget;
 
       if (startPoint.type === "right") {
         // If the start.x + tolerance is lower than end.x, we keep things
         // as they are
         if (startPoint.x + TOLERANCE < endPoint.x) {
-          arrow.points[0] = {
-            type: "right",
-            x: draggedWidget.x + draggedWidget.width,
-            y: draggedWidget.y + draggedWidget.height / 2,
-          };
+          points[0].type = "right";
           // Else, we check which point is higher so we can swith our point
           // types and re-order the connections
         } else if (startPoint.y + TOLERANCE < endPoint.y) {
-          arrow.points[0] = {
-            type: "bottom",
-            x: draggedWidget.x + draggedWidget.width / 2,
-            y: draggedWidget.y + draggedWidget.height,
-          };
-          arrow.points[1] = {
-            type: "top",
-            x: endWidget.x + endWidget.width / 2,
-            y: endWidget.y,
-          };
+          points[0].type = "bottom";
+          points[1].type = "top";
           // Final else, it's the only remaining option
         } else {
-          arrow.points[0] = {
-            type: "top",
-            x: draggedWidget.x + draggedWidget.width / 2,
-            y: draggedWidget.y,
-          };
-          arrow.points[1] = {
-            type: "bottom",
-            x: endWidget.x + endWidget.width / 2,
-            y: endWidget.y + endWidget.height,
-          };
+          points[0].type = "top";
+          points[1].type = "bottom";
         }
       }
 
@@ -556,36 +471,16 @@ class App extends React.Component<{}, State> {
         // If the start.x + tolerance is lower than end.x, we keep things
         // as they are
         if (startPoint.x - TOLERANCE > endPoint.x) {
-          arrow.points[0] = {
-            type: "left",
-            x: draggedWidget.x,
-            y: draggedWidget.y + draggedWidget.height / 2,
-          };
+          points[0].type = "left";
           // Else, we check which point is higher so we can switch our point
           // types and re-order the connections
         } else if (startPoint.y + TOLERANCE < endPoint.y) {
-          arrow.points[0] = {
-            type: "bottom",
-            x: draggedWidget.x + draggedWidget.width / 2,
-            y: draggedWidget.y + draggedWidget.height,
-          };
-          arrow.points[1] = {
-            type: "top",
-            x: endWidget.x + endWidget.width / 2,
-            y: endWidget.y,
-          };
+          points[0].type = "bottom";
+          points[1].type = "top";
           // Final else, it's the only remaining option
         } else {
-          arrow.points[0] = {
-            type: "top",
-            x: draggedWidget.x + draggedWidget.width / 2,
-            y: draggedWidget.y,
-          };
-          arrow.points[1] = {
-            type: "bottom",
-            x: endWidget.x + endWidget.width / 2,
-            y: endWidget.y + endWidget.height,
-          };
+          points[0].type = "top";
+          points[1].type = "bottom";
         }
       }
 
@@ -594,36 +489,16 @@ class App extends React.Component<{}, State> {
         // If the start.y + tolerance is lower than end.y, we keep things
         // as they are
         if (startPoint.y + TOLERANCE < endPoint.y) {
-          arrow.points[0] = {
-            type: "bottom",
-            x: draggedWidget.x + draggedWidget.width / 2,
-            y: draggedWidget.y + draggedWidget.height,
-          };
+          points[0].type = "bottom";
           // Else, we check if the start point is "lefter" than the end
           // point
         } else if (startPoint.x + TOLERANCE < endPoint.x) {
-          arrow.points[0] = {
-            type: "right",
-            x: draggedWidget.x + draggedWidget.width,
-            y: draggedWidget.y + draggedWidget.height / 2,
-          };
-          arrow.points[1] = {
-            type: "left",
-            x: endWidget.x,
-            y: endWidget.y + endWidget.height / 2,
-          };
+          points[0].type = "right";
+          points[1].type = "left";
           // Finally, we know the start point is "righter" than the end one
         } else {
-          arrow.points[0] = {
-            type: "left",
-            x: draggedWidget.x,
-            y: draggedWidget.y + draggedWidget.width / 2,
-          };
-          arrow.points[1] = {
-            type: "right",
-            x: endWidget.x + endWidget.width,
-            y: endWidget.y + endWidget.height / 2,
-          };
+          points[0].type = "left";
+          points[1].type = "right";
         }
       }
 
@@ -631,39 +506,98 @@ class App extends React.Component<{}, State> {
         // If the start.y + tolerance is lower than end.y, we keep things
         // as they are
         if (startPoint.y - TOLERANCE > endPoint.y) {
-          arrow.points[0] = {
-            type: "top",
-            x: draggedWidget.x + draggedWidget.width / 2,
-            y: draggedWidget.y,
-          };
+          points[0].type = "top";
           // Else, we check if the start point is "lefter" than the end
           // point
         } else if (startPoint.x + TOLERANCE < endPoint.x) {
-          arrow.points[0] = {
-            type: "right",
-            x: draggedWidget.x + draggedWidget.width,
-            y: draggedWidget.y + draggedWidget.height / 2,
-          };
-          arrow.points[1] = {
-            type: "left",
-            x: endWidget.x,
-            y: endWidget.y + endWidget.height / 2,
-          };
+          points[0].type = "right";
+          points[1].type = "left";
           // Finally, we know the start point is "righter" than the end one
         } else {
-          arrow.points[0] = {
-            type: "left",
-            x: draggedWidget.x,
-            y: draggedWidget.y + draggedWidget.width / 2,
-          };
-          arrow.points[1] = {
-            type: "right",
-            x: endWidget.x + endWidget.width,
-            y: endWidget.y + endWidget.height / 2,
-          };
+          points[0].type = "left";
+          points[1].type = "right";
         }
       }
     }
+
+    // chartBranch connector
+    points[0] = this.getArrowPointMidPosition(points[0], startWidget);
+    points[1] = this.getArrowPointMidPosition(points[1], endWidget);
+    arrow.points = points;
+
+    // charSide connector
+    if(this.isChartSideArrow(arrow, widgets)) {
+      this.updateArrowChartSide(arrow, startWidget, endWidget);
+    }
+  }
+
+  isChartSideArrow(arrow: ArrowWidget, widgets: Record<string, Widget>) {
+    // can't be chartSide if there is any chartBranch
+    if(this.getSharedChartBranch(arrow, widgets)) return;
+
+    // chartSide arrows can only be created from "initial" and "chartSide" arrows
+    return ((arrow.initialIsHorizontal && (arrow.points[0].type === "top" || arrow.points[0].type === "bottom")) ||
+    (!arrow.initialIsHorizontal && (arrow.points[0].type === "left" || arrow.points[0].type === "right")));
+  }
+
+  updateArrowChartSide(arrow: ArrowWidget, startWidget: StickyWidget, endWidget: StickyWidget) {
+    // chartSide connector
+    if(arrow.initialIsHorizontal) {
+      const middleX = this.getIntersectionMiddle(startWidget.x, startWidget.width, endWidget.x, endWidget.width);
+      if(middleX) {
+        arrow.points[0].x = middleX;
+        arrow.points[1].x = middleX;
+      }
+    } else {
+      const middleY = this.getIntersectionMiddle(startWidget.y, startWidget.height, endWidget.y, endWidget.height);
+      if(middleY) {
+        arrow.points[0].y = middleY;
+        arrow.points[1].y = middleY;
+      }
+    }
+  }
+
+  getIntersectionMiddle(min1: number, size1: number, min2: number, size2: number) {
+    const max1 = min1 + size1;
+    const max2 = min2 + size2;
+
+    if(min1 === min2 && max1 === max2) {
+      return 0;
+    }
+
+    // TODO: implement margin of 10
+    if((min1 > min2 && min1 < max2)) {
+      return min1 + ((max2 - min1) / 2);
+    } else if(max1 > min2 && max1 < max2) {
+      return max1 - ((max1 - min2) / 2);
+    }
+
+    // no intersection
+    return null;
+  }
+  
+  getArrowPointMidPosition(point: Point, widget: StickyWidget) {
+    let newPoint: Point = {type: point.type, x: 0, y: 0};
+    switch(point.type) {
+      case "top":
+        newPoint.x = widget.x + widget.width / 2;
+        newPoint.y = widget.y;
+        break;
+      case "right":
+        newPoint.x = widget.x + widget.width;
+        newPoint.y = widget.y + widget.height / 2;
+        break;
+      case "bottom":
+        newPoint.x = widget.x + widget.width / 2;
+        newPoint.y = widget.y + widget.height;
+        break;
+      case "left":
+        newPoint.x = widget.x;
+        newPoint.y = widget.y + widget.width / 2;
+        break;
+    }
+
+    return newPoint;
   }
 
   render() {

@@ -30,6 +30,7 @@ export type ArrowWidget = W & {
   arrowType: ArrowType;
   chartBranchSide: PointType | null;
   chartBranchPosition: number | null;
+  initialIsHorizontal: boolean;
 };
 
 export type Widget = StickyWidget | ArrowWidget;
@@ -56,4 +57,5 @@ export const arrowFactory = (spec: Partial<ArrowWidget>): ArrowWidget => ({
   arrowType: "initial",
   chartBranchSide: null,
   chartBranchPosition: null,
+  initialIsHorizontal: true,
 });
