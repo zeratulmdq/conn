@@ -87,7 +87,6 @@ class App extends React.Component<{}, State> {
       };
 
       this.updateArrow(arrow, prevState.widgets);
-      this.setArrowChartBranch(arrow, prevState.widgets, true);
 
       return {
         ...prevState,
@@ -135,7 +134,6 @@ class App extends React.Component<{}, State> {
         .reduce((acc, cur) => {
           const arrow = cur as ArrowWidget;
           this.updateArrow(arrow, prevState.widgets);
-          this.setArrowChartBranch(arrow, prevState.widgets, true);
 
           return {
             ...acc,
@@ -324,6 +322,9 @@ class App extends React.Component<{}, State> {
     if(this.isChartSideArrow(arrow, widgets)) {
       this.updateArrowChartSide(arrow, startWidget, endWidget);
     }
+    
+    // update chart branches state
+    this.setArrowChartBranch(arrow, widgets, true);
     
     // update endWidget side and position for branches that require it
     // this is mainly used for a branched arrow whose widget is "behind" the branch fixed position 
