@@ -12,6 +12,8 @@ import {
 import Arrow from "./widgets/Arrow";
 
 export const TOLERANCE = 10;
+export const ARROW_MARGIN = 10;
+export const TWO_SEGMENT_ARROW_MIN = 20;
 
 interface State {
   cursor: React.CSSProperties["cursor"];
@@ -75,95 +77,16 @@ class App extends React.Component<{}, State> {
     }
 
     this.setState((prevState) => {
+      // create Arrow
       const startWidget = prevState.widgets[prevState.initialId || ""];
       const endWidget = prevState.widgets[id];
-      const points: Point[] = [];
-      const isHorizontalConnection = Math.abs(
-        (startWidget.x - endWidget.x) / (startWidget.y - endWidget.y)
-      ) > 1;
-
+      const isHorizontalConnection = Math.abs((startWidget.x - endWidget.x) / (startWidget.y - endWidget.y)) > 1;
       const arrow = {
         ...arrowFactory({ start: prevState.initialId, end: id }),
-        points,
         initialIsHorizontal: isHorizontalConnection,
       };
 
-      if (startWidget.x + startWidget.width + TOLERANCE < endWidget.x) {
-        if (isHorizontalConnection) {
-          points[0] = {
-            x: startWidget.x + startWidget.width,
-            y: startWidget.y + startWidget.height / 2,
-            type: "right",
-          };
-          points[1] = {
-            x: endWidget.x,
-            y: endWidget.y + endWidget.height / 2,
-            type: "left",
-          };
-        } else {
-          if (startWidget.y + startWidget.height + TOLERANCE < endWidget.y) {
-            points[0] = {
-              x: startWidget.x + startWidget.width / 2,
-              y: startWidget.y + startWidget.height,
-              type: "bottom",
-            };
-            points[1] = {
-              x: endWidget.x + endWidget.width / 2,
-              y: endWidget.y,
-              type: "top",
-            };
-          } else {
-            points[0] = {
-              x: startWidget.x + startWidget.width / 2,
-              y: startWidget.y,
-              type: "top",
-            };
-            points[1] = {
-              x: endWidget.x + endWidget.width / 2,
-              y: endWidget.y + endWidget.height,
-              type: "bottom",
-            };
-          }
-        }
-      } else {
-        if (isHorizontalConnection) {
-          points[0] = {
-            x: startWidget.x,
-            y: startWidget.y + startWidget.height / 2,
-            type: "left",
-          };
-          points[1] = {
-            x: endWidget.x + endWidget.width,
-            y: endWidget.y + endWidget.height / 2,
-            type: "right",
-          };
-        } else {
-          if (startWidget.y + startWidget.height + TOLERANCE < endWidget.y) {
-            points[0] = {
-              x: startWidget.x + startWidget.width / 2,
-              y: startWidget.y + startWidget.height,
-              type: "bottom",
-            };
-            points[1] = {
-              x: endWidget.x + endWidget.width / 2,
-              y: endWidget.y,
-              type: "top",
-            };
-          } else {
-            points[0] = {
-              x: startWidget.x + startWidget.width / 2,
-              y: startWidget.y,
-              type: "top",
-            };
-            points[1] = {
-              x: endWidget.x + endWidget.width / 2,
-              y: endWidget.y + endWidget.height,
-              type: "bottom",
-            };
-          }
-        }
-      }
-      
+      this.updateArrow(arrow, prevState.widgets);
       this.updateArrowChartBranch(arrow, prevState.widgets, true);
 
       return {
@@ -177,6 +100,8 @@ class App extends React.Component<{}, State> {
       };
     });
   };
+
+
 
   handleDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const s = stickyFactory({ x: e.clientX, y: e.clientY });
@@ -209,8 +134,7 @@ class App extends React.Component<{}, State> {
         )
         .reduce((acc, cur) => {
           const arrow = cur as ArrowWidget;
-          this.updateArrow(arrow, prevState.widgets, prevState.dragging, dragged);
-
+          this.updateArrow(arrow, prevState.widgets);
           this.updateArrowChartBranch(arrow, prevState.widgets, true);
 
           return {
@@ -290,10 +214,11 @@ class App extends React.Component<{}, State> {
         if(this.isChartSideArrow(arrow, prevState.widgets)) {
           const startWidget = prevState.widgets[arrow.start || ""] as StickyWidget;
           const endWidget = prevState.widgets[arrow.end || ""] as StickyWidget;
-          this.updateArrowChartSide(arrow, startWidget, endWidget);
-          arrow.arrowType = "chartSide";
-          // swap axis for new chartSide creation
-          arrow.initialIsHorizontal = !arrow.initialIsHorizontal;
+          if(this.updateArrowChartSide(arrow, startWidget, endWidget)) {
+            arrow.arrowType = "chartSide";
+            // swap axis for new chartSide creation
+            arrow.initialIsHorizontal = !arrow.initialIsHorizontal;
+          }
         }
         
         if(arrow.end === prevState.dragging) {
@@ -321,8 +246,6 @@ class App extends React.Component<{}, State> {
   handleRef = (ref: HTMLDivElement) => (this.ref = ref);
 
   updateArrowChartBranch(arrow: ArrowWidget, widgets: Record<string, Widget>, ignoreLoneSide: boolean) {
-    // if(arrow.arrowType === "chartSide") return;
-
     // don't recalculate if chartBranchSide didn't change
     if(!arrow.chartBranchSide || arrow.chartBranchSide !== arrow.points[0].type) {
       
@@ -330,7 +253,6 @@ class App extends React.Component<{}, State> {
       // don't force chartBranching while dragging on a new side of the origin widget
       if(ignoreLoneSide && !chartBranchArrow) return;
         
-      // console.log(`updateArrowChartBranch originType: ${arrow.points[0].type} chartBranchArrow: ${chartBranchArrow}  chartBranchPosition: ${chartBranchArrow?.chartBranchPosition}`)
       arrow.arrowType = "chartBranch";
       arrow.chartBranchSide = arrow.points[0].type;
       if(chartBranchArrow) {
@@ -362,167 +284,37 @@ class App extends React.Component<{}, State> {
       connectedArrow.points[0].type === arrow.points[0].type &&
       connectedArrow.chartBranchPosition);
   }
-  
+
   // updates arrow points (start/end) in both position and type
-  updateArrow(arrow: ArrowWidget, widgets: Record<string, Widget>, draggingWidgetId: string | null, draggingWidget: StickyWidget) {
-    const startPoint = arrow.points[0];
-    const endPoint = arrow.points[1];
-    
-    const startWidget = arrow.start === draggingWidgetId ? draggingWidget :
-    widgets[arrow.start || ""] as StickyWidget;
-    const endWidget = arrow.end === draggingWidgetId ? draggingWidget :
-    widgets[arrow.end || ""] as StickyWidget;
+  updateArrow(arrow: ArrowWidget, widgets: Record<string, Widget>) {
+    const startWidget = widgets[arrow.start || ""];
+    const endWidget = widgets[arrow.end || ""];
+    const isHorizontalConnection = Math.abs((startWidget.x - endWidget.x) / (startWidget.y - endWidget.y)) > 1;
 
     // initial dummy values
-    let points: Point[] = [{type: startPoint.type, x: 0, y: 0}, {type: endPoint.type, x: 1, y: 0}];
+    let points: Point[] = [{type: "right", x: 0, y: 0}, {type: "left", x: 1, y: 0}];
 
-    if (arrow.end === draggingWidgetId) {
-
-      if (startPoint.type === "right") {
-        // If the start.x + tolerance is lower than end.x, we keep things
-        // as they are
-        if (startPoint.x + TOLERANCE < endPoint.x) {
-          points[1].type = "left";
-          // Else, we check which point is higher so we can switch our point
-          // types and re-order the connections
-        } else if (startPoint.y + TOLERANCE < endPoint.y) {
-          points[0].type = "bottom";
-          points[1].type = "top";
-          // Final else, it's the only remaining option
-        } else {
-          points[0].type = "top";
-          points[1].type = "bottom";
-        }
+    if(isHorizontalConnection) {
+      if (startWidget.x + startWidget.width + TOLERANCE < endWidget.x) {
+        points[0].type = "right";
+        points[1].type = "left";
+      } else {
+        points[0].type = "left";
+        points[1].type = "right";
       }
-
-      if (startPoint.type === "left") {
-        // If the start.x + tolerance is lower than end.x, we keep things
-        // as they are
-        if (startPoint.x - TOLERANCE < endPoint.x) {
-          points[1].type = "right";
-          // Else, we check which point is higher so we can swith our point
-          // types and re-order the connections
-        } else if (startPoint.y + TOLERANCE < endPoint.y) {
-          points[0].type = "bottom";
-          points[1].type = "top";
-          // Final else, it's the only remaining option
-        } else {
-          points[0].type = "top";
-          points[1].type = "bottom";
-        }
-      }
-
-      // If start point is bottom, it means endpoint is top, trust me.
-      if (startPoint.type === "bottom") {
-        // If the start.y + tolerance is lower than end.y, we keep things
-        // as they are
-        if (startPoint.y + TOLERANCE < endPoint.y) {
-          points[1].type = "top";
-          // Else, we check if the start point is "lefter" than the end
-          // point
-        } else if (startPoint.x + TOLERANCE < endPoint.x) {
-          points[0].type = "right";
-          points[1].type = "left";
-          // Finally, we know the start point is "righter" than the end one
-        } else {
-          points[0].type = "left";
-          points[1].type = "right";
-        }
-      }
-
-      if (startPoint.type === "top") {
-        // If the start.y + tolerance is lower than end.y, we keep things
-        // as they are
-        if (startPoint.y - TOLERANCE > endPoint.y) {
-          points[1].type = "bottom";
-          // Else, we check if the start point is "lefter" than the end
-          // point
-        } else if (startPoint.x + TOLERANCE < endPoint.x) {
-          points[0].type = "right";
-          points[1].type = "left";
-          // Finally, we know the start point is "righter" than the end one
-        } else {
-          points[0].type = "left";
-          points[1].type = "right";
-        }
-      }
-    }
-
-    if (arrow.start === draggingWidgetId) {
-
-      if (startPoint.type === "right") {
-        // If the start.x + tolerance is lower than end.x, we keep things
-        // as they are
-        if (startPoint.x + TOLERANCE < endPoint.x) {
-          points[0].type = "right";
-          // Else, we check which point is higher so we can swith our point
-          // types and re-order the connections
-        } else if (startPoint.y + TOLERANCE < endPoint.y) {
-          points[0].type = "bottom";
-          points[1].type = "top";
-          // Final else, it's the only remaining option
-        } else {
-          points[0].type = "top";
-          points[1].type = "bottom";
-        }
-      }
-
-      if (startPoint.type === "left") {
-        // If the start.x + tolerance is lower than end.x, we keep things
-        // as they are
-        if (startPoint.x - TOLERANCE > endPoint.x) {
-          points[0].type = "left";
-          // Else, we check which point is higher so we can switch our point
-          // types and re-order the connections
-        } else if (startPoint.y + TOLERANCE < endPoint.y) {
-          points[0].type = "bottom";
-          points[1].type = "top";
-          // Final else, it's the only remaining option
-        } else {
-          points[0].type = "top";
-          points[1].type = "bottom";
-        }
-      }
-
-      // If start point is bottom, it means endpoint is top, trust me.
-      if (startPoint.type === "bottom") {
-        // If the start.y + tolerance is lower than end.y, we keep things
-        // as they are
-        if (startPoint.y + TOLERANCE < endPoint.y) {
-          points[0].type = "bottom";
-          // Else, we check if the start point is "lefter" than the end
-          // point
-        } else if (startPoint.x + TOLERANCE < endPoint.x) {
-          points[0].type = "right";
-          points[1].type = "left";
-          // Finally, we know the start point is "righter" than the end one
-        } else {
-          points[0].type = "left";
-          points[1].type = "right";
-        }
-      }
-
-      if (startPoint.type === "top") {
-        // If the start.y + tolerance is lower than end.y, we keep things
-        // as they are
-        if (startPoint.y - TOLERANCE > endPoint.y) {
-          points[0].type = "top";
-          // Else, we check if the start point is "lefter" than the end
-          // point
-        } else if (startPoint.x + TOLERANCE < endPoint.x) {
-          points[0].type = "right";
-          points[1].type = "left";
-          // Finally, we know the start point is "righter" than the end one
-        } else {
-          points[0].type = "left";
-          points[1].type = "right";
-        }
+    } else {
+      if (startWidget.y + startWidget.height + TOLERANCE < endWidget.y) {
+        points[0].type = "bottom";
+        points[1].type = "top";
+      } else {
+        points[0].type = "top";
+        points[1].type = "bottom";
       }
     }
 
     // chartBranch connector
-    points[0] = this.getArrowPointMidPosition(points[0], startWidget);
-    points[1] = this.getArrowPointMidPosition(points[1], endWidget);
+    points[0] = this.getWidgetSideMidPosition(points[0], startWidget);
+    points[1] = this.getWidgetSideMidPosition(points[1], endWidget);
     arrow.points = points;
 
     // charSide connector
@@ -530,53 +322,110 @@ class App extends React.Component<{}, State> {
       this.updateArrowChartSide(arrow, startWidget, endWidget);
     }
   }
-
+  
   isChartSideArrow(arrow: ArrowWidget, widgets: Record<string, Widget>) {
-    // can't be chartSide if there is any chartBranch
+    // can't be chartSide if there is any chartBranch on current side
     if(this.getSharedChartBranch(arrow, widgets)) return;
 
-    // chartSide arrows can only be created from "initial" and "chartSide" arrows
     return ((arrow.initialIsHorizontal && (arrow.points[0].type === "top" || arrow.points[0].type === "bottom")) ||
     (!arrow.initialIsHorizontal && (arrow.points[0].type === "left" || arrow.points[0].type === "right")));
   }
 
-  updateArrowChartSide(arrow: ArrowWidget, startWidget: StickyWidget, endWidget: StickyWidget) {
-    // chartSide connector
+  updateArrowChartSide(arrow: ArrowWidget, startWidget: Widget, endWidget: Widget) {
+    // if widgets limits are intersecting, use chartSide connector
     if(arrow.initialIsHorizontal) {
       const middleX = this.getIntersectionMiddle(startWidget.x, startWidget.width, endWidget.x, endWidget.width);
       if(middleX) {
         arrow.points[0].x = middleX;
         arrow.points[1].x = middleX;
+        return true;
       }
     } else {
       const middleY = this.getIntersectionMiddle(startWidget.y, startWidget.height, endWidget.y, endWidget.height);
       if(middleY) {
         arrow.points[0].y = middleY;
         arrow.points[1].y = middleY;
+        return true;
       }
     }
+
+    // if there is no intersection, use original axis side
+    if(arrow.initialIsHorizontal) {
+      arrow.points[0].type = endWidget.x > startWidget.x + (startWidget.width / 2) ? "right" : "left";
+    } else {
+      arrow.points[0].type = endWidget.y > startWidget.y + (startWidget.height / 2) ? "bottom" : "top";
+    }
+    arrow.points[0] = this.getWidgetSideMidPosition(arrow.points[0], startWidget);
+    
+    
+    const startWidgetCenter = {x: startWidget.x + (startWidget.width/2), y: startWidget.y + (startWidget.height/2)};
+    const endWidgetCenter = {x: endWidget.x + (endWidget.width/2), y: endWidget.y + (endWidget.height/2)};
+    const distX = Math.abs(startWidgetCenter.x - endWidgetCenter.x) - (startWidget.width/2 + endWidget.width/2);
+    const distY = Math.abs(startWidgetCenter.y - endWidgetCenter.y) - (startWidget.height/2 + endWidget.height/2);
+    const widgetsTooClose = arrow.initialIsHorizontal ? distX <= ARROW_MARGIN : distY <= ARROW_MARGIN;
+    
+    // if widgets are too close, use 2-segments arrow
+    if(widgetsTooClose) {
+      // never closer than 20px from origin and never less than 10px from target side
+      if(arrow.initialIsHorizontal) {
+        arrow.points[1].type = endWidget.y > arrow.points[0].y ? "top" : "bottom";
+        let distXToCenter = startWidget.width/2 + Math.max(distX + ARROW_MARGIN, TWO_SEGMENT_ARROW_MIN);
+        arrow.points[1].x = startWidgetCenter.x + (arrow.points[0].type === "right" ? distXToCenter : -distXToCenter);
+        arrow.points[1].y = arrow.points[1].type === "top" ? endWidget.y : endWidget.y + endWidget.height;
+      } else {
+        arrow.points[1].type = endWidget.x > arrow.points[0].x ? "left" : "right";
+        let distYToCenter = startWidget.height/2 + Math.max(distY + ARROW_MARGIN, TWO_SEGMENT_ARROW_MIN);
+        arrow.points[1].x = arrow.points[1].type === "left" ? endWidget.x : endWidget.x + endWidget.width;
+        arrow.points[1].y = startWidgetCenter.y + (arrow.points[0].type === "bottom" ? distYToCenter : -distYToCenter);
+      }
+
+    // otherwise use regular 3-segments arrow
+    } else {
+      if(arrow.initialIsHorizontal) {
+        	arrow.points[1].type = arrow.points[0].type === "right" ? "left" : "right";
+      } else {
+        arrow.points[1].type = arrow.points[0].type === "bottom" ? "top" : "bottom";
+      }
+      arrow.points[1] = this.getWidgetSideMidPosition(arrow.points[1], endWidget);
+    }
+
+    return false;
+  }
+
+  // returns if any widgets are at "distance" or lower in the requested axis
+  widgetsTooClose(a: Widget, b: Widget, distance: number, horizontal: boolean) {
+    const aCenter = {x: a.x + (a.width/2), y: a.y + (a.height/2)};
+    const bCenter = {x: b.x + (b.width/2), y: b.y + (b.height/2)};
+    if(horizontal) {
+      const distX = Math.abs(aCenter.x - bCenter.x) - (a.width/2 + b.width/2);
+      return distX <= distance;
+    }
+    const distY = Math.abs(aCenter.y - bCenter.y) - (a.height/2 + b.height/2);
+    return distY <= distance;
   }
 
   getIntersectionMiddle(min1: number, size1: number, min2: number, size2: number) {
     const max1 = min1 + size1;
     const max2 = min2 + size2;
 
-    if(min1 === min2 && max1 === max2) {
-      return 0;
-    }
-
-    // TODO: implement margin of 10
-    if((min1 > min2 && min1 < max2)) {
-      return min1 + ((max2 - min1) / 2);
+    if((min1 === min2 && max1 === max2) ||
+      (min1 > min2 && min1 < max2)) {
+      const intersection = max2 - min1;
+      if(intersection <= ARROW_MARGIN * 2) return null;
+      
+      return min1 + (intersection / 2);
     } else if(max1 > min2 && max1 < max2) {
-      return max1 - ((max1 - min2) / 2);
+      const intersection = max1 - min2;
+      if(intersection <= ARROW_MARGIN * 2) return null;
+
+      return max1 - (intersection / 2);
     }
 
     // no intersection
     return null;
   }
   
-  getArrowPointMidPosition(point: Point, widget: StickyWidget) {
+  getWidgetSideMidPosition(point: Point, widget: Widget) {
     let newPoint: Point = {type: point.type, x: 0, y: 0};
     switch(point.type) {
       case "top":

@@ -9,11 +9,12 @@ interface PropTypes {
 const pathGenerator = (points: Point[], chartBranchSide: PointType | null, chartBranchPosition: number | null) => {
   const start = points[0];
   const end = points[1];
-  const isHorizontalConnection = start.type === "right" || start.type === "left";
+  const isHorizontalStart = start.type === "right" || start.type === "left";
+  const isHorizontalEnd = end.type === "right" || end.type === "left";
 
-  // straight line
-  if((isHorizontalConnection && start.y === end.y) ||
-    (!isHorizontalConnection && start.x === end.x)) {
+  // 1-segment straight line
+  if((isHorizontalStart && start.y === end.y) ||
+    (!isHorizontalStart && start.x === end.x)) {
       const d = `M ${start.x} ${start.y} L ${end.x} ${end.y}`;
       return [
         <path d={d} stroke="red" strokeWidth="2" fill="none" />,
@@ -27,16 +28,37 @@ const pathGenerator = (points: Point[], chartBranchSide: PointType | null, chart
       ];
   }
 
+  // 2-segments line
+  if(isHorizontalStart !== isHorizontalEnd) {
+    const p1 = `${start.x} ${start.y}`;
+    const p2 = isHorizontalStart ? `${end.x} ${start.y}` : `${start.x} ${end.y}`;
+    const p3 = `${end.x} ${end.y}`;
+    
+    const d1 = `M ${p1} L ${p2}`;
+    const d2 = `M ${p2} L ${p3}`;
+    return [
+      <path d={d1} stroke="red" strokeWidth="2" fill="none" />,
+      <path d={d2} stroke="red" strokeWidth="2" fill="none" />,
+      <circle
+        cx={`${end.x}`}
+        cy={`${end.y}`}
+        r="5"
+        stroke="#5cb85c"
+        fill="#5cb85c"
+      ></circle>,
+    ];
+  }
+
   // 3-segments line
-  const midDistance = isHorizontalConnection ? (end.x - start.x) / 2 : (end.y - start.y) / 2;
-  let segment2Position = isHorizontalConnection ? start.x + midDistance: start.y + midDistance;
+  const midDistance = isHorizontalStart ? (end.x - start.x) / 2 : (end.y - start.y) / 2;
+  let segment2Position = isHorizontalStart ? start.x + midDistance: start.y + midDistance;
   if(chartBranchSide && chartBranchPosition && chartBranchSide === start.type) {
     segment2Position = chartBranchPosition;
   }
 
   const p1 = `${start.x} ${start.y}`;
-  const p2 = isHorizontalConnection ? `${segment2Position} ${start.y}` : ` ${start.x} ${segment2Position}`;
-  const p3 = isHorizontalConnection ? `${segment2Position} ${end.y}` : ` ${end.x} ${segment2Position}`;
+  const p2 = isHorizontalStart ? `${segment2Position} ${start.y}` : ` ${start.x} ${segment2Position}`;
+  const p3 = isHorizontalStart ? `${segment2Position} ${end.y}` : ` ${end.x} ${segment2Position}`;
   const p4 = `${end.x} ${end.y}`;
 
   const d1 = `M ${p1} L ${p2}`;
