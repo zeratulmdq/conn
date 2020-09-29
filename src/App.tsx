@@ -87,7 +87,7 @@ class App extends React.Component<{}, State> {
       };
 
       this.updateArrow(arrow, prevState.widgets);
-      this.updateArrowChartBranch(arrow, prevState.widgets, true);
+      this.setArrowChartBranch(arrow, prevState.widgets, true);
 
       return {
         ...prevState,
@@ -135,7 +135,7 @@ class App extends React.Component<{}, State> {
         .reduce((acc, cur) => {
           const arrow = cur as ArrowWidget;
           this.updateArrow(arrow, prevState.widgets);
-          this.updateArrowChartBranch(arrow, prevState.widgets, true);
+          this.setArrowChartBranch(arrow, prevState.widgets, true);
 
           return {
             ...acc,
@@ -216,14 +216,15 @@ class App extends React.Component<{}, State> {
           const endWidget = prevState.widgets[arrow.end || ""] as StickyWidget;
           if(this.updateArrowChartSide(arrow, startWidget, endWidget)) {
             arrow.arrowType = "chartSide";
-            // swap axis for new chartSide creation
-            arrow.initialIsHorizontal = !arrow.initialIsHorizontal;
           }
         }
         
         if(arrow.end === prevState.dragging) {
-          this.updateArrowChartBranch(arrow, prevState.widgets, false);
+          this.setArrowChartBranch(arrow, prevState.widgets, false);
         }
+        
+        // update initial axis
+        arrow.initialIsHorizontal = arrow.points[0].type === "left" || arrow.points[0].type === "right";
 
         return {
           ...acc,
@@ -245,27 +246,29 @@ class App extends React.Component<{}, State> {
 
   handleRef = (ref: HTMLDivElement) => (this.ref = ref);
 
-  updateArrowChartBranch(arrow: ArrowWidget, widgets: Record<string, Widget>, ignoreLoneSide: boolean) {
+  // finds if this side of the startWidget should be a branchChart and sets the corresponding chartBranchPosition
+  setArrowChartBranch(arrow: ArrowWidget, widgets: Record<string, Widget>, ignoreEmptySide: boolean) {
     // don't recalculate if chartBranchSide didn't change
-    if(!arrow.chartBranchSide || arrow.chartBranchSide !== arrow.points[0].type) {
+    if(arrow.chartBranchSide && arrow.points[0].type === arrow.chartBranchSide)
+      return;
       
-      const chartBranchArrow = this.getSharedChartBranch(arrow, widgets);
-      // don't force chartBranching while dragging on a new side of the origin widget
-      if(ignoreLoneSide && !chartBranchArrow) return;
-        
-      arrow.arrowType = "chartBranch";
-      arrow.chartBranchSide = arrow.points[0].type;
-      if(chartBranchArrow) {
-        arrow.chartBranchPosition = chartBranchArrow.chartBranchPosition;
+    const chartBranchArrow = this.getSharedChartBranch(arrow, widgets);
+    // don't force chartBranching while dragging on an empty side of the origin widget
+    if(ignoreEmptySide && !chartBranchArrow) return;
+      
+    arrow.arrowType = "chartBranch";
+    arrow.chartBranchSide = arrow.points[0].type;
+    if(chartBranchArrow) {
+      arrow.chartBranchPosition = chartBranchArrow.chartBranchPosition;
+    } else {
+      // on new branch, set 2nd segment position to half the distance in X or Y depending on the orientation of the arrow
+      if(arrow.points[0].type === "left" || arrow.points[0].type === "right") {
+        arrow.chartBranchPosition = arrow.points[0].x + ((arrow.points[1].x - arrow.points[0].x) / 2);
       } else {
-        // fix 2nd segment position to X or Y depending on orientation of the arrow
-        if(arrow.points[0].type === "left" || arrow.points[0].type === "right") {
-          arrow.chartBranchPosition = arrow.points[0].x + ((arrow.points[1].x - arrow.points[0].x) / 2);
-        } else {
-          arrow.chartBranchPosition = arrow.points[0].y + ((arrow.points[1].y - arrow.points[0].y) / 2);
-        }
+        arrow.chartBranchPosition = arrow.points[0].y + ((arrow.points[1].y - arrow.points[0].y) / 2);
       }
     }
+    
   }
 
   // find another arrow that share same origin point and already has chartBranchPosition fixed
@@ -279,7 +282,7 @@ class App extends React.Component<{}, State> {
     ).map(w=> w as ArrowWidget);
 
     return originArrows.find(connectedArrow =>
-      connectedArrow !== arrow &&
+      connectedArrow.id !== arrow.id &&
       connectedArrow.arrowType === "chartBranch" &&
       connectedArrow.points[0].type === arrow.points[0].type &&
       connectedArrow.chartBranchPosition);
@@ -289,12 +292,12 @@ class App extends React.Component<{}, State> {
   updateArrow(arrow: ArrowWidget, widgets: Record<string, Widget>) {
     const startWidget = widgets[arrow.start || ""];
     const endWidget = widgets[arrow.end || ""];
-    const isHorizontalConnection = Math.abs((startWidget.x - endWidget.x) / (startWidget.y - endWidget.y)) > 1;
+    const isHorizontalStart = Math.abs((startWidget.x - endWidget.x) / (startWidget.y - endWidget.y)) > 1;
 
     // initial dummy values
     let points: Point[] = [{type: "right", x: 0, y: 0}, {type: "left", x: 1, y: 0}];
 
-    if(isHorizontalConnection) {
+    if(isHorizontalStart) {
       if (startWidget.x + startWidget.width + TOLERANCE < endWidget.x) {
         points[0].type = "right";
         points[1].type = "left";
@@ -321,6 +324,32 @@ class App extends React.Component<{}, State> {
     if(this.isChartSideArrow(arrow, widgets)) {
       this.updateArrowChartSide(arrow, startWidget, endWidget);
     }
+    
+    // update endWidget side and position for branches that require it
+    // this is mainly used for a branched arrow whose widget is "behind" the branch fixed position 
+    if(arrow.chartBranchPosition && arrow.points[0].type === arrow.chartBranchSide) {
+      if(arrow.chartBranchSide === "left" || arrow.chartBranchSide === "right") {
+        // if inside endWidget, use 2-segment arrow
+        if(arrow.chartBranchPosition >= endWidget.x && arrow.chartBranchPosition <= endWidget.x + endWidget.width) {
+          arrow.points[1].x = arrow.chartBranchPosition;
+          arrow.points[1].y = (endWidget.y + endWidget.height/2) > arrow.points[0].y ? endWidget.y : endWidget.y + endWidget.height;
+        // otherwise use regular 3-segment arrow but make sure it connects to the right side
+        } else {
+          arrow.points[1].type = arrow.chartBranchPosition < endWidget.x ? "left" : "right";
+          points[1] = this.getWidgetSideMidPosition(points[1], endWidget);
+        }
+      } else {  // vertical
+        if(arrow.chartBranchPosition >= endWidget.y && arrow.chartBranchPosition <= endWidget.y + endWidget.height) {
+          // if inside endWidget, use 2-segment arrow
+          arrow.points[1].x = (endWidget.x + endWidget.width/2) > arrow.points[0].x ? endWidget.x : endWidget.x + endWidget.width;
+          arrow.points[1].y = arrow.chartBranchPosition;
+        // otherwise use regular 3-segment arrow but make sure it connects to the right side
+        } else {
+          arrow.points[1].type = arrow.chartBranchPosition < endWidget.y ? "top" : "bottom";
+          points[1] = this.getWidgetSideMidPosition(points[1], endWidget);
+        }
+      }
+    }
   }
   
   isChartSideArrow(arrow: ArrowWidget, widgets: Record<string, Widget>) {
@@ -331,6 +360,7 @@ class App extends React.Component<{}, State> {
     (!arrow.initialIsHorizontal && (arrow.points[0].type === "left" || arrow.points[0].type === "right")));
   }
 
+  // returns true if using intersection chartSide
   updateArrowChartSide(arrow: ArrowWidget, startWidget: Widget, endWidget: Widget) {
     // if widgets limits are intersecting, use chartSide connector
     if(arrow.initialIsHorizontal) {
@@ -357,7 +387,6 @@ class App extends React.Component<{}, State> {
     }
     arrow.points[0] = this.getWidgetSideMidPosition(arrow.points[0], startWidget);
     
-    
     const startWidgetCenter = {x: startWidget.x + (startWidget.width/2), y: startWidget.y + (startWidget.height/2)};
     const endWidgetCenter = {x: endWidget.x + (endWidget.width/2), y: endWidget.y + (endWidget.height/2)};
     const distX = Math.abs(startWidgetCenter.x - endWidgetCenter.x) - (startWidget.width/2 + endWidget.width/2);
@@ -378,7 +407,6 @@ class App extends React.Component<{}, State> {
         arrow.points[1].x = arrow.points[1].type === "left" ? endWidget.x : endWidget.x + endWidget.width;
         arrow.points[1].y = startWidgetCenter.y + (arrow.points[0].type === "bottom" ? distYToCenter : -distYToCenter);
       }
-
     // otherwise use regular 3-segments arrow
     } else {
       if(arrow.initialIsHorizontal) {

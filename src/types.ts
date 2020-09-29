@@ -28,8 +28,8 @@ export type ArrowWidget = W & {
   start: string | null;
   end: string | null;
   arrowType: ArrowType;
-  chartBranchSide: PointType | null;
-  chartBranchPosition: number | null;
+  chartBranchSide: PointType | null;  // side of the origin widget where the branch starts
+  chartBranchPosition: number | null; // fix position where arrows share the 2nd branch segment
   initialIsHorizontal: boolean;
 };
 
