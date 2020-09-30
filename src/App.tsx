@@ -253,6 +253,7 @@ class App extends React.Component<{}, State> {
     const chartBranchArrow = this.getSharedChartBranchArrow(arrow, widgets);
     // don't force chartBranching while dragging on an empty side of the origin/end widget
     if(dragging && !chartBranchArrow) {
+      arrow.chartBranch = null;
       return;
     }
   
@@ -322,6 +323,7 @@ class App extends React.Component<{}, State> {
 
     // stick to your branch side
     if(arrow.arrowType !== "chartBranch") {
+      // change connections depending on positioning
       if(isHorizontalStart) {
         if (startWidget.x + startWidget.width + TOLERANCE < endWidget.x) {
           points[0].type = "right";
@@ -339,30 +341,28 @@ class App extends React.Component<{}, State> {
           points[1].type = "bottom";
         }
       }
-    }
-
-    // chartBranch connector
-    points[0] = this.getWidgetSideMidPosition(points[0], startWidget);
-    points[1] = this.getWidgetSideMidPosition(points[1], endWidget);
-    arrow.points = points;
+      points[0] = this.getWidgetSideMidPosition(points[0], startWidget);
+      points[1] = this.getWidgetSideMidPosition(points[1], endWidget);
+      arrow.points = points;
       
-    if(arrow.arrowType !== "chartBranch") {
-      // charSide connector
+      // check if being a chartSide arrow
       if(this.isChartSideArrow(arrow, widgets)) {
         this.updateArrowChartSide(arrow, startWidget, endWidget);
       }
       
-      // update chart branches state
+      // check if being part of a chartBranch
       this.setArrowChartBranch(arrow, widgets, true);
     }
     
-    // update non-convergent side and position for branches that require it
+    // update chartBranch arrows
     // this is mainly used for a branched arrow whose widget is "behind" the branch fixed position 
-    if(arrow.chartBranch && arrow.chartBranch.type !== "oneToOne") {
-      let convergencePoint = arrow.chartBranch.type === "manyToOne" ? arrow.points[1] : arrow.points[0];
-      let nonConvergencePoint = arrow.chartBranch.type === "manyToOne" ? arrow.points[0] : arrow.points[1];
-      const convergentWidget = arrow.chartBranch.type === "manyToOne" ? endWidget : startWidget;
-      const nonConvergentWidget = convergentWidget === startWidget ? endWidget : startWidget;
+    if(arrow.chartBranch) {
+      // on "oneOnOne" we consider the start widget as the convergent one
+      const convergesOnEnd = arrow.chartBranch.type === "manyToOne"; 
+      let convergencePoint = convergesOnEnd ? arrow.points[1] : arrow.points[0];
+      let nonConvergencePoint = convergesOnEnd ? arrow.points[0] : arrow.points[1];
+      const convergentWidget = convergesOnEnd ? endWidget : startWidget;
+      const nonConvergentWidget = convergesOnEnd ? startWidget : endWidget;
       
       convergencePoint = this.getWidgetSideMidPosition(convergencePoint, convergentWidget);
       nonConvergencePoint = this.getWidgetSideMidPosition(nonConvergencePoint, nonConvergentWidget);
@@ -389,8 +389,8 @@ class App extends React.Component<{}, State> {
         }
       }
 
-      arrow.points[0] = arrow.chartBranch.type === "manyToOne" ? nonConvergencePoint : convergencePoint;
-      arrow.points[1] = arrow.chartBranch.type === "manyToOne" ? convergencePoint : nonConvergencePoint;
+      arrow.points[0] = convergesOnEnd ? nonConvergencePoint : convergencePoint;
+      arrow.points[1] = convergesOnEnd ? convergencePoint : nonConvergencePoint;
     }
   }
   
