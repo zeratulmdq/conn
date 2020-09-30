@@ -8,6 +8,8 @@ import {
   ArrowWidget,
   arrowFactory,
   Point,
+  toOrientation,
+  ChartBranch,
 } from "./types";
 import Arrow from "./widgets/Arrow";
 
@@ -99,8 +101,6 @@ class App extends React.Component<{}, State> {
       };
     });
   };
-
-
 
   handleDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const s = stickyFactory({ x: e.clientX, y: e.clientY });
@@ -209,18 +209,22 @@ class App extends React.Component<{}, State> {
       ).map(w=> w as ArrowWidget)
       .reduce((acc, arrow) => {
 
-        if(this.isChartSideArrow(arrow, prevState.widgets)) {
-          const startWidget = prevState.widgets[arrow.start || ""] as StickyWidget;
-          const endWidget = prevState.widgets[arrow.end || ""] as StickyWidget;
-          if(this.updateArrowChartSide(arrow, startWidget, endWidget)) {
-            arrow.arrowType = "chartSide";
+        // stick to your branch side
+        if(arrow.arrowType !== "chartBranch") {
+          if(this.isChartSideArrow(arrow, prevState.widgets)) {
+            const startWidget = prevState.widgets[arrow.start || ""] as StickyWidget;
+            const endWidget = prevState.widgets[arrow.end || ""] as StickyWidget;
+            if(this.updateArrowChartSide(arrow, startWidget, endWidget)) {
+              arrow.arrowType = "chartSide";
+            }
           }
+          
+          //if(arrow.end === prevState.dragging) {
+            // update chart branches state
+            this.setArrowChartBranch(arrow, prevState.widgets, false);
+          //}
         }
-        
-        if(arrow.end === prevState.dragging) {
-          this.setArrowChartBranch(arrow, prevState.widgets, false);
-        }
-        
+          
         // update initial axis
         arrow.initialIsHorizontal = arrow.points[0].type === "left" || arrow.points[0].type === "right";
 
@@ -244,46 +248,63 @@ class App extends React.Component<{}, State> {
 
   handleRef = (ref: HTMLDivElement) => (this.ref = ref);
 
-  // finds if this side of the startWidget should be a branchChart and sets the corresponding chartBranchPosition
-  setArrowChartBranch(arrow: ArrowWidget, widgets: Record<string, Widget>, ignoreEmptySide: boolean) {
-    // don't recalculate if chartBranchSide didn't change
-    if(arrow.chartBranchSide && arrow.points[0].type === arrow.chartBranchSide)
+  // finds if this arrow should be a part of a branchChart
+  setArrowChartBranch(arrow: ArrowWidget, widgets: Record<string, Widget>, dragging: boolean) {
+    const chartBranchArrow = this.getSharedChartBranchArrow(arrow, widgets);
+    // don't force chartBranching while dragging on an empty side of the origin/end widget
+    if(dragging && !chartBranchArrow) {
       return;
-      
-    const chartBranchArrow = this.getSharedChartBranch(arrow, widgets);
-    // don't force chartBranching while dragging on an empty side of the origin widget
-    if(ignoreEmptySide && !chartBranchArrow) return;
-      
-    arrow.arrowType = "chartBranch";
-    arrow.chartBranchSide = arrow.points[0].type;
-    if(chartBranchArrow) {
-      arrow.chartBranchPosition = chartBranchArrow.chartBranchPosition;
-    } else {
-      // on new branch, set 2nd segment position to half the distance in X or Y depending on the orientation of the arrow
-      if(arrow.points[0].type === "left" || arrow.points[0].type === "right") {
-        arrow.chartBranchPosition = arrow.points[0].x + ((arrow.points[1].x - arrow.points[0].x) / 2);
-      } else {
-        arrow.chartBranchPosition = arrow.points[0].y + ((arrow.points[1].y - arrow.points[0].y) / 2);
-      }
+    }
+  
+    // don't set arrowType while dragging (wait until mouseUp)
+    if(!dragging) {
+      arrow.arrowType = "chartBranch";
     }
     
+    if(chartBranchArrow && chartBranchArrow.chartBranch) {
+      // become part of an existing chartBranch
+      if(chartBranchArrow.chartBranch.type === "oneToOne") {
+        // if we are just adding the 2nd arrow to this chartBranch, update type and convergenceSide beforehand
+        if(chartBranchArrow.start === arrow.start ){
+          chartBranchArrow.chartBranch.type = "oneToMany";
+          chartBranchArrow.chartBranch.convergenceSide = arrow.points[0].type;
+        } else {
+          chartBranchArrow.chartBranch.type = "manyToOne";
+          chartBranchArrow.chartBranch.convergenceSide = arrow.points[1].type;
+        }
+      }
+      arrow.chartBranch = Object.assign({}, chartBranchArrow.chartBranch);
+    } else {
+      // new lonely charBranch arrow
+      let chartBranch: ChartBranch = {
+        position: 0,
+        convergenceSide: arrow.points[0].type,
+        type: "oneToOne"
+      };
+      // on new branch, set 2nd segment position to half the distance in X or Y depending on orientation 
+      if(toOrientation(chartBranch.convergenceSide) === "horizontal") {
+        chartBranch.position = arrow.points[0].x + ((arrow.points[1].x - arrow.points[0].x) / 2);
+      } else {
+        chartBranch.position = arrow.points[0].y + ((arrow.points[1].y - arrow.points[0].y) / 2);
+      }
+      arrow.chartBranch = chartBranch;
+    }
   }
 
-  // find another arrow that share same origin point and already has chartBranchPosition fixed
-  getSharedChartBranch(arrow: ArrowWidget, widgets: Record<string, Widget>) {
-    // all arrows connected to "start" widget
-    const originArrows = Object.values(widgets)
+  // find another arrow that share same origin or end point and already has chartBranch defined
+  getSharedChartBranchArrow(arrow: ArrowWidget, widgets: Record<string, Widget>) {
+    const chartBranchArrows = Object.values(widgets)
     .filter(
       (w) =>
-        w.type === "arrow" &&
-        (w.start === arrow.start)
-    ).map(w=> w as ArrowWidget);
-
-    return originArrows.find(connectedArrow =>
-      connectedArrow.id !== arrow.id &&
-      connectedArrow.arrowType === "chartBranch" &&
-      connectedArrow.points[0].type === arrow.points[0].type &&
-      connectedArrow.chartBranchPosition);
+      w.type === "arrow" &&
+      w.id !== arrow.id &&
+      w.arrowType === "chartBranch" &&
+      w.chartBranch &&
+      ((w.start === arrow.start && w.points[0].type === arrow.points[0].type) ||
+       (w.end === arrow.end && w.points[1].type === arrow.points[1].type))
+    ).map(w => w as ArrowWidget);
+    
+    return chartBranchArrows.length > 0 ? chartBranchArrows[0] : null;
   }
 
   // updates arrow points (start/end) in both position and type
@@ -295,21 +316,28 @@ class App extends React.Component<{}, State> {
     // initial dummy values
     let points: Point[] = [{type: "right", x: 0, y: 0}, {type: "left", x: 1, y: 0}];
 
-    if(isHorizontalStart) {
-      if (startWidget.x + startWidget.width + TOLERANCE < endWidget.x) {
-        points[0].type = "right";
-        points[1].type = "left";
+    if(arrow.points.length === 2) {
+      points = arrow.points;
+    }
+
+    // stick to your branch side
+    if(arrow.arrowType !== "chartBranch") {
+      if(isHorizontalStart) {
+        if (startWidget.x + startWidget.width + TOLERANCE < endWidget.x) {
+          points[0].type = "right";
+          points[1].type = "left";
+        } else {
+          points[0].type = "left";
+          points[1].type = "right";
+        }
       } else {
-        points[0].type = "left";
-        points[1].type = "right";
-      }
-    } else {
-      if (startWidget.y + startWidget.height + TOLERANCE < endWidget.y) {
-        points[0].type = "bottom";
-        points[1].type = "top";
-      } else {
-        points[0].type = "top";
-        points[1].type = "bottom";
+        if (startWidget.y + startWidget.height + TOLERANCE < endWidget.y) {
+          points[0].type = "bottom";
+          points[1].type = "top";
+        } else {
+          points[0].type = "top";
+          points[1].type = "bottom";
+        }
       }
     }
 
@@ -317,45 +345,58 @@ class App extends React.Component<{}, State> {
     points[0] = this.getWidgetSideMidPosition(points[0], startWidget);
     points[1] = this.getWidgetSideMidPosition(points[1], endWidget);
     arrow.points = points;
-
-    // charSide connector
-    if(this.isChartSideArrow(arrow, widgets)) {
-      this.updateArrowChartSide(arrow, startWidget, endWidget);
+      
+    if(arrow.arrowType !== "chartBranch") {
+      // charSide connector
+      if(this.isChartSideArrow(arrow, widgets)) {
+        this.updateArrowChartSide(arrow, startWidget, endWidget);
+      }
+      
+      // update chart branches state
+      this.setArrowChartBranch(arrow, widgets, true);
     }
     
-    // update chart branches state
-    this.setArrowChartBranch(arrow, widgets, true);
-    
-    // update endWidget side and position for branches that require it
+    // update non-convergent side and position for branches that require it
     // this is mainly used for a branched arrow whose widget is "behind" the branch fixed position 
-    if(arrow.chartBranchPosition && arrow.points[0].type === arrow.chartBranchSide) {
-      if(arrow.chartBranchSide === "left" || arrow.chartBranchSide === "right") {
-        // if inside endWidget, use 2-segment arrow
-        if(arrow.chartBranchPosition >= endWidget.x && arrow.chartBranchPosition <= endWidget.x + endWidget.width) {
-          arrow.points[1].x = arrow.chartBranchPosition;
-          arrow.points[1].y = (endWidget.y + endWidget.height/2) > arrow.points[0].y ? endWidget.y : endWidget.y + endWidget.height;
-        // otherwise use regular 3-segment arrow but make sure it connects to the right side
+    if(arrow.chartBranch && arrow.chartBranch.type !== "oneToOne") {
+      let convergencePoint = arrow.chartBranch.type === "manyToOne" ? arrow.points[1] : arrow.points[0];
+      let nonConvergencePoint = arrow.chartBranch.type === "manyToOne" ? arrow.points[0] : arrow.points[1];
+      const convergentWidget = arrow.chartBranch.type === "manyToOne" ? endWidget : startWidget;
+      const nonConvergentWidget = convergentWidget === startWidget ? endWidget : startWidget;
+      
+      convergencePoint = this.getWidgetSideMidPosition(convergencePoint, convergentWidget);
+      nonConvergencePoint = this.getWidgetSideMidPosition(nonConvergencePoint, nonConvergentWidget);
+    
+      if(toOrientation(arrow.chartBranch.convergenceSide) === "horizontal") {
+        // if inside, use 2-segment arrow
+        if(arrow.chartBranch.position >= nonConvergentWidget.x && arrow.chartBranch.position <= nonConvergentWidget.x + nonConvergentWidget.width) {
+          nonConvergencePoint.x = arrow.chartBranch.position;
+          nonConvergencePoint.y = (nonConvergentWidget.y + nonConvergentWidget.height/2) > convergencePoint.y ? nonConvergentWidget.y : nonConvergentWidget.y + nonConvergentWidget.height;
+        // otherwise use regular 3-segment arrow but make sure it connects to the correct side
         } else {
-          arrow.points[1].type = arrow.chartBranchPosition < endWidget.x ? "left" : "right";
-          points[1] = this.getWidgetSideMidPosition(points[1], endWidget);
+          nonConvergencePoint.type = arrow.chartBranch.position < nonConvergentWidget.x ? "left" : "right";
+          nonConvergencePoint = this.getWidgetSideMidPosition(nonConvergencePoint, nonConvergentWidget);
         }
       } else {  // vertical
-        if(arrow.chartBranchPosition >= endWidget.y && arrow.chartBranchPosition <= endWidget.y + endWidget.height) {
-          // if inside endWidget, use 2-segment arrow
-          arrow.points[1].x = (endWidget.x + endWidget.width/2) > arrow.points[0].x ? endWidget.x : endWidget.x + endWidget.width;
-          arrow.points[1].y = arrow.chartBranchPosition;
-        // otherwise use regular 3-segment arrow but make sure it connects to the right side
+        // if inside, use 2-segment arrow
+        if(arrow.chartBranch.position >= nonConvergentWidget.y && arrow.chartBranch.position <= nonConvergentWidget.y + nonConvergentWidget.height) {
+          nonConvergencePoint.x = (nonConvergentWidget.x + nonConvergentWidget.width/2) > convergencePoint.x ? nonConvergentWidget.x : nonConvergentWidget.x + nonConvergentWidget.width;
+          nonConvergencePoint.y = arrow.chartBranch.position;
+        // otherwise use regular 3-segment arrow but make sure it connects to the correct side
         } else {
-          arrow.points[1].type = arrow.chartBranchPosition < endWidget.y ? "top" : "bottom";
-          points[1] = this.getWidgetSideMidPosition(points[1], endWidget);
+          nonConvergencePoint.type = arrow.chartBranch.position < nonConvergentWidget.y ? "top" : "bottom";
+          nonConvergencePoint = this.getWidgetSideMidPosition(nonConvergencePoint, nonConvergentWidget);
         }
       }
+
+      arrow.points[0] = arrow.chartBranch.type === "manyToOne" ? nonConvergencePoint : convergencePoint;
+      arrow.points[1] = arrow.chartBranch.type === "manyToOne" ? convergencePoint : nonConvergencePoint;
     }
   }
   
   isChartSideArrow(arrow: ArrowWidget, widgets: Record<string, Widget>) {
     // can't be chartSide if there is any chartBranch on current side
-    if(this.getSharedChartBranch(arrow, widgets)) return;
+    if(this.getSharedChartBranchArrow(arrow, widgets)) return;
 
     return ((arrow.initialIsHorizontal && (arrow.points[0].type === "top" || arrow.points[0].type === "bottom")) ||
     (!arrow.initialIsHorizontal && (arrow.points[0].type === "left" || arrow.points[0].type === "right")));

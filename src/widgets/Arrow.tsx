@@ -1,12 +1,12 @@
 import React from "react";
 import "./Sticky.css";
-import { ArrowWidget, Point, PointType } from "../types";
+import { ArrowWidget, ChartBranch, Point } from "../types";
 
 interface PropTypes {
   widget: ArrowWidget;
 }
 
-const pathGenerator = (points: Point[], chartBranchSide: PointType | null, chartBranchPosition: number | null) => {
+const pathGenerator = (points: Point[], chartBranch: ChartBranch | null) => {
   const start = points[0];
   const end = points[1];
   const isHorizontalStart = start.type === "right" || start.type === "left";
@@ -52,8 +52,12 @@ const pathGenerator = (points: Point[], chartBranchSide: PointType | null, chart
   // 3-segments line
   const midDistance = isHorizontalStart ? (end.x - start.x) / 2 : (end.y - start.y) / 2;
   let segment2Position = isHorizontalStart ? start.x + midDistance: start.y + midDistance;
-  if(chartBranchSide && chartBranchPosition && chartBranchSide === start.type) {
-    segment2Position = chartBranchPosition;
+  if(chartBranch)
+  {
+    const convergenceTarget = chartBranch.type === "manyToOne" ? end : start;
+    if(chartBranch.convergenceSide === convergenceTarget.type) {
+      segment2Position = chartBranch.position;
+    }
   }
 
   const p1 = `${start.x} ${start.y}`;
@@ -87,7 +91,7 @@ class Arrow extends React.PureComponent<PropTypes> {
         xmlns="http://www.w3.org/2000/svg"
         version="1.1"
       >
-        {pathGenerator(this.props.widget.points, this.props.widget.chartBranchSide, this.props.widget.chartBranchPosition)}
+        {pathGenerator(this.props.widget.points, this.props.widget.chartBranch)}
       </svg>
     );
   }

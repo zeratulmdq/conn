@@ -9,11 +9,19 @@ interface W {
 }
 
 export type PointType = "bottom" | "top" | "left" | "right";
+export type Orientation = "horizontal" | "vertical";
+export type ChartBranchType = "oneToOne" | "oneToMany" | "manyToOne";
 
 export interface Point {
   x: number;
   y: number;
   type: PointType;
+}
+
+export interface ChartBranch {
+  position: number; // fixed position where arrows share the 2nd branch segment
+  convergenceSide: PointType;  // side of the widget where the arrows converge (might be start or end widget depending of ChartBranchType)
+  type: ChartBranchType;
 }
 
 // initial: initial simple arrow, centered to the connected widgets on both ends, bent into 3 segments having the same length in both parallel segments.
@@ -28,8 +36,7 @@ export type ArrowWidget = W & {
   start: string | null;
   end: string | null;
   arrowType: ArrowType;
-  chartBranchSide: PointType | null;  // side of the origin widget where the branch starts
-  chartBranchPosition: number | null; // fix position where arrows share the 2nd branch segment
+  chartBranch: ChartBranch | null;
   initialIsHorizontal: boolean;
 };
 
@@ -55,7 +62,10 @@ export const arrowFactory = (spec: Partial<ArrowWidget>): ArrowWidget => ({
   end: spec.end || null,
   points: [],
   arrowType: "initial",
-  chartBranchSide: null,
-  chartBranchPosition: null,
+  chartBranch: null,
   initialIsHorizontal: true,
 });
+
+export const toOrientation = (type: PointType) : Orientation => {
+  return type === "left" || type === "right" ? "horizontal" : "vertical";
+}
