@@ -1,6 +1,8 @@
-import React from "react";
+import React, { CSSProperties } from "react";
 import "./App.css";
 import Sticky from "./widgets/Sticky";
+import Arrow from "./widgets/Arrow";
+import Checkbox from "./settings/Checkbox";
 import {
   stickyFactory,
   Widget,
@@ -11,13 +13,25 @@ import {
   toOrientation,
   ChartBranch,
 } from "./types";
-import Arrow from "./widgets/Arrow";
 
 export const TOLERANCE = 10;
 export const ARROW_MARGIN = 10;
 export const TWO_SEGMENT_ARROW_MIN = 20;
 
+export const settingsStyle: React.CSSProperties = {
+  position: "absolute",
+  top: 0,
+  width:"auto",
+  height: "auto",
+  borderStyle: "solid",
+  backgroundColor: "lightgray",
+  padding: 10,
+};
+
 interface State {
+  settings:{
+    stickToConvergentWidgetSide: boolean;
+  };
   cursor: React.CSSProperties["cursor"];
   dragging: string | null;
   initialId: string | null;
@@ -33,6 +47,9 @@ class App extends React.Component<{}, State> {
   ref: HTMLDivElement | null = null;
 
   state: State = {
+    settings :{
+      stickToConvergentWidgetSide: false,
+    },
     cursor: "auto",
     dragging: null,
     initialId: null,
@@ -103,7 +120,9 @@ class App extends React.Component<{}, State> {
   };
 
   handleDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const s = stickyFactory({ x: e.clientX, y: e.clientY });
+    // create rectangular stickies while holding CTRL down
+    const stickyWidth = e.ctrlKey ? 150 : 100;
+    const s = stickyFactory({ x: e.clientX, y: e.clientY, width: stickyWidth });
     this.setState((prevState) => ({
       selected: s.id,
       widgets: {
@@ -210,7 +229,7 @@ class App extends React.Component<{}, State> {
       .reduce((acc, arrow) => {
 
         // stick to your branch side
-        if(arrow.arrowType !== "chartBranch") {
+        if(!prevState.settings.stickToConvergentWidgetSide || arrow.arrowType !== "chartBranch") {
           if(this.isChartSideArrow(arrow, prevState.widgets)) {
             const startWidget = prevState.widgets[arrow.start || ""] as StickyWidget;
             const endWidget = prevState.widgets[arrow.end || ""] as StickyWidget;
@@ -219,10 +238,8 @@ class App extends React.Component<{}, State> {
             }
           }
           
-          //if(arrow.end === prevState.dragging) {
-            // update chart branches state
-            this.setArrowChartBranch(arrow, prevState.widgets, false);
-          //}
+          // update chart branches state (for both start and end arrows)
+          this.setArrowChartBranch(arrow, prevState.widgets, false);
         }
           
         // update initial axis
@@ -250,6 +267,13 @@ class App extends React.Component<{}, State> {
 
   // finds if this arrow should be a part of a branchChart
   setArrowChartBranch(arrow: ArrowWidget, widgets: Record<string, Widget>, dragging: boolean) {
+    if(!this.state.settings.stickToConvergentWidgetSide && arrow.chartBranch) {
+      // don't recalculate if chartBranchSide didn't change
+      let convergencePoint = arrow.chartBranch.type === "manyToOne" ? arrow.points[1] : arrow.points[0];
+      if(convergencePoint.type === arrow.chartBranch.convergenceSide)
+        return;
+    }
+
     const chartBranchArrow = this.getSharedChartBranchArrow(arrow, widgets);
     // don't force chartBranching while dragging on an empty side of the origin/end widget
     if(dragging && !chartBranchArrow) {
@@ -322,7 +346,7 @@ class App extends React.Component<{}, State> {
     }
 
     // stick to your branch side
-    if(arrow.arrowType !== "chartBranch") {
+    if(!this.state.settings.stickToConvergentWidgetSide || arrow.arrowType !== "chartBranch") {
       // change connections depending on positioning
       if(isHorizontalStart) {
         if (startWidget.x + startWidget.width + TOLERANCE < endWidget.x) {
@@ -474,25 +498,36 @@ class App extends React.Component<{}, State> {
     return distY <= distance;
   }
 
+  // returns the middle point of an intersection
   getIntersectionMiddle(min1: number, size1: number, min2: number, size2: number) {
     const max1 = min1 + size1;
     const max2 = min2 + size2;
 
+    // TODO: none of this works when moving endWidget
+    // TODO: make sure this works with different shaped widgets
+    // if((this.between(min1, min2, max2) && this.between(max1, min2, max2)) ||
+    //    (this.between(min2, min1, max1) && this.between(max2, min1, max1))) {
     if((min1 === min2 && max1 === max2) ||
       (min1 > min2 && min1 < max2)) {
       const intersection = max2 - min1;
       if(intersection <= ARROW_MARGIN * 2) return null;
       
+      console.log(`inters1 ${intersection}`);
       return min1 + (intersection / 2);
     } else if(max1 > min2 && max1 < max2) {
       const intersection = max1 - min2;
       if(intersection <= ARROW_MARGIN * 2) return null;
 
+      console.log(`inters2 ${intersection}`);
       return max1 - (intersection / 2);
     }
 
     // no intersection
     return null;
+  }
+
+  between(value: number, min: number, max: number) {
+    return value>min && value<max;
   }
   
   getWidgetSideMidPosition(point: Point, widget: Widget) {
@@ -512,7 +547,7 @@ class App extends React.Component<{}, State> {
         break;
       case "left":
         newPoint.x = widget.x;
-        newPoint.y = widget.y + widget.width / 2;
+        newPoint.y = widget.y + widget.height / 2;
         break;
     }
 
@@ -522,38 +557,46 @@ class App extends React.Component<{}, State> {
   render() {
     const { cursor, selected, widgets } = this.state;
     return (
-      <div
-        style={{ cursor }}
-        className="App"
-        tabIndex={1}
-        onContextMenu={this.handleRightClick}
-        onDoubleClick={this.handleDoubleClick}
-        onKeyDown={this.handleKeyDown}
-        onMouseMove={this.handleDrag}
-        onMouseDown={this.handleMouseDown}
-        onMouseUp={this.handleMouseUp}
-        ref={this.handleRef}
-      >
-        {Object.values(widgets).map((w) => {
-          if (w.type === "sticky") {
-            return (
-              <Sticky
+      <div>
+        <div
+          id="canvas"
+          style={{ cursor }}
+          className="App"
+          tabIndex={1}
+          onContextMenu={this.handleRightClick}
+          onDoubleClick={this.handleDoubleClick}
+          onKeyDown={this.handleKeyDown}
+          onMouseMove={this.handleDrag}
+          onMouseDown={this.handleMouseDown}
+          onMouseUp={this.handleMouseUp}
+          ref={this.handleRef}
+          >
+          {Object.values(widgets).map((w) => {
+            if (w.type === "sticky") {
+              return (
+                <Sticky
                 cursor={cursor}
                 onRightClick={this.handleStickyRightClick}
                 onDragStart={this.handleDragStart}
-                selected={selected === w.id}
-                widget={w}
-                key={w.id}
-              />
-            );
-          }
-
-          if (w.type === "arrow") {
-            return <Arrow widget={w} key={w.id} />;
-          }
-
-          return null;
-        })}
+                  selected={selected === w.id}
+                  widget={w}
+                  key={w.id}
+                  />
+                  );
+            }
+            
+            if (w.type === "arrow") {
+              return <Arrow widget={w} key={w.id} />;
+            }
+            
+            return null;
+          })}
+        </div>
+        <div id="settings" style={settingsStyle}>
+          <Checkbox
+            label="Stick To Convergent Widget Side"
+            onCheckedChange={(checked) => this.setState({settings: { stickToConvergentWidgetSide: checked }})} />
+        </div>
       </div>
     );
   }

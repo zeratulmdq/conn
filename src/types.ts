@@ -44,8 +44,8 @@ export type Widget = StickyWidget | ArrowWidget;
 
 export const stickyFactory = (spec: Partial<StickyWidget>): StickyWidget => ({
   id: uuid.v4(),
-  height: 100,
-  width: 100,
+  height: spec.height ?? 100,
+  width: spec.width ?? 100,
   type: "sticky",
   x: (spec.x || 0) - 50,
   y: (spec.y || 0) - 50,
