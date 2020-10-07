@@ -4,8 +4,10 @@ import { StickyWidget } from "../types";
 
 interface PropTypes {
   cursor: React.CSSProperties["cursor"];
-  onRightClick: (id: string, e: React.MouseEvent<HTMLDivElement>) => void;
+  onClick: (id: string, e: React.MouseEvent<HTMLDivElement>) => void;
   onDragStart: (id: string, e: React.MouseEvent<HTMLDivElement>) => void;
+  onMouseHover: (id: string, e: React.MouseEvent<HTMLDivElement>) => void;
+  onMouseLeave: (id: string, e: React.MouseEvent<HTMLDivElement>) => void;
   selected: boolean;
   widget: StickyWidget;
 }
@@ -15,16 +17,24 @@ class Sticky extends React.Component<PropTypes> {
   initialX: number = 0;
   initialY: number = 0;
 
-  handleContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
-    const { onRightClick: onContextMenu, widget } = this.props;
-
-    onContextMenu(widget.id, e);
+  handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const { onClick, widget } = this.props;
+    onClick(widget.id, e);
   };
 
   handleDragStart = (e: React.MouseEvent<HTMLDivElement>) => {
     const { onDragStart, widget } = this.props;
-
     onDragStart(widget.id, e);
+  };
+  
+  handleMouseHover = (e: React.MouseEvent<HTMLDivElement>) => {
+    const { onMouseHover, widget } = this.props;
+    onMouseHover(widget.id, e);
+  };
+
+  handleMouseLeave = (e: React.MouseEvent<HTMLDivElement>) => {
+    const { onMouseLeave, widget } = this.props;
+    onMouseLeave(widget.id, e);
   };
 
   render() {
@@ -35,8 +45,10 @@ class Sticky extends React.Component<PropTypes> {
     } = this.props;
     return (
       <div
-        onContextMenu={this.handleContextMenu}
+        onClick={this.handleClick}
         onMouseDown={this.handleDragStart}
+        onMouseMove={this.handleMouseHover}
+        onMouseLeave={this.handleMouseLeave}
         style={{
           top: y,
           left: x,

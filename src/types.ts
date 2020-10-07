@@ -18,6 +18,11 @@ export interface Point {
   type: PointType;
 }
 
+export interface Position {
+  x: number;
+  y: number;
+}
+
 export interface ChartBranch {
   position: number; // fixed position where arrows share the 2nd branch segment
   convergenceSide: PointType;  // side of the widget where the arrows converge (might be start or end widget depending of ChartBranchType)
@@ -61,9 +66,9 @@ export const arrowFactory = (spec: Partial<ArrowWidget>): ArrowWidget => ({
   start: spec.start || null,
   end: spec.end || null,
   points: [],
-  arrowType: "initial",
+  arrowType: spec.arrowType || "initial",
   chartBranch: null,
-  initialIsHorizontal: true,
+  initialIsHorizontal: spec.initialIsHorizontal || true,
 });
 
 export const toOrientation = (type: PointType) : Orientation => {

@@ -10,6 +10,7 @@ import {
   ArrowWidget,
   arrowFactory,
   Point,
+  Position,
   toOrientation,
   ChartBranch,
 } from "./types";
@@ -62,13 +63,34 @@ class App extends React.Component<{}, State> {
   };
 
   cancelArrowCreation() {
-      this.setState({
+    
+    this.setState((prevState) => {
+      if(prevState.dragging) {
+        // delete dragging arrow if any
+        const draggingWidget = { ...prevState.widgets[prevState.dragging] };
+        if(draggingWidget.type === "arrow") {
+          const prevWidgets = prevState.widgets;
+          delete prevWidgets[draggingWidget.id];
+          return {
+            ...prevState,
+            dragging: null,
+            initialId: null,
+            cursor: "auto",
+            widgets: { ...prevWidgets },
+          }
+        }
+      }
+
+      return {
+        ...prevState,
+        dragging: null,
         initialId: null,
         cursor: "auto",
-      });
+      }
+    });
   }
   
-  handleRightClick = (e: React.MouseEvent<HTMLDivElement>) => { 
+  handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
 
@@ -77,43 +99,79 @@ class App extends React.Component<{}, State> {
     }
   }
 
-  handleStickyRightClick = (id: string, e: React.MouseEvent<HTMLDivElement>) => {
+  handleStickyClick = (id: string, e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
-
-    // start arrow creation
-    if (!this.state.initialId) {
-      this.setState({
-        initialId: id,
-        cursor: "crosshair",
-      });
-      return;
-    }
-
+    
     if (this.state.initialId === id) {
       this.cancelArrowCreation();
       return;
     }
 
-    this.setState((prevState) => {
-      // create Arrow
-      const startWidget = prevState.widgets[prevState.initialId || ""];
-      const endWidget = prevState.widgets[id];
-      const isHorizontalConnection = Math.abs((startWidget.x - endWidget.x) / (startWidget.y - endWidget.y)) > 1;
-      const arrow = {
-        ...arrowFactory({ start: prevState.initialId, end: id }),
-        initialIsHorizontal: isHorizontalConnection,
-      };
+    if (this.state.cursor !== "crosshair")
+      return;
 
-      this.updateArrow(arrow, prevState.widgets);
+    // start arrow creation
+    if (!this.state.initialId) {
+      const mousePosition: Position = {x: e.clientX, y: e.clientY };
+      // this.setState({initialId: id});
+
+      // create Arrow for dragging without end widget
+      this.setState((prevState) => {
+        const arrow = {
+          ...arrowFactory({ start: id, end: null }),
+        };
+
+        this.updateDisconnectedArrow(arrow, prevState.widgets, mousePosition);
+
+        return {
+          ...prevState,
+          initialId: id,
+          widgets: {
+            ...prevState.widgets,
+            [arrow.id]: arrow,
+          },
+          dragging: arrow.id,
+          initialX: mousePosition.x,
+          initialY: mousePosition.y,
+          lastX: mousePosition.x,
+          lastY: mousePosition.y,
+        };
+      });
+
+      return;
+    }
+    
+    this.setState((prevState) => {
+      if (!prevState.dragging)
+        return { ...prevState };
+      
+      const draggingArrow = { ...prevState.widgets[prevState.dragging] } as ArrowWidget;
+      const startWidget = prevState.widgets[draggingArrow.start ?? id];
+      const endWidget = prevState.widgets[draggingArrow.end ?? id];
+
+      // avoid duplicate arrow (same start and end)
+      const duplicateArrow = Object.values(prevState.widgets).find(w => w.type==="arrow" && w.id !== draggingArrow.id && w.start === startWidget.id && w.end === endWidget.id);
+      if(duplicateArrow) {
+        return { ...prevState }
+      }
+      
+      // update Arrow start/end and connect it to both widgets
+      const isHorizontalConnection = Math.abs((startWidget.x - endWidget.x) / (startWidget.y - endWidget.y)) > 1;
+      draggingArrow.start = startWidget.id;
+      draggingArrow.end = endWidget.id;
+      draggingArrow.initialIsHorizontal = isHorizontalConnection;
+
+      this.updateArrow(draggingArrow, prevState.widgets);
 
       return {
         ...prevState,
         cursor: "auto",
+        dragging: null,
         initialId: null,
         widgets: {
           ...prevState.widgets,
-          [arrow.id]: arrow,
+          [draggingArrow.id]: draggingArrow,
         },
       };
     });
@@ -133,18 +191,20 @@ class App extends React.Component<{}, State> {
   };
 
   handleDrag = (e: React.MouseEvent<HTMLDivElement>) => {
-    const { clientX, clientY } = e;
+    const mousePosition: Position = {x: e.clientX, y: e.clientY };
+
     this.setState((prevState) => {
       if (!prevState.dragging || !prevState.lastX || !prevState.lastY)
         return { ...prevState };
-      const dragged = {
-        ...prevState.widgets[prevState.dragging],
-      } as StickyWidget;
+      
+      const draggingWidget = { ...prevState.widgets[prevState.dragging] };
+      if(draggingWidget.type === "sticky") {
+        // move dragged sticky
+        draggingWidget.x = draggingWidget.x + mousePosition.x - prevState.lastX;
+        draggingWidget.y = draggingWidget.y + mousePosition.y - prevState.lastY;
 
-      dragged.x = dragged.x + clientX - prevState.lastX;
-      dragged.y = dragged.y + clientY - prevState.lastY;
-
-      const connectedArrows = Object.values(prevState.widgets)
+        // update connected arrows
+        const connectedArrows = Object.values(prevState.widgets)
         .filter(
           (w) =>
             w.type === "arrow" &&
@@ -153,7 +213,7 @@ class App extends React.Component<{}, State> {
         .reduce((acc, cur) => {
           const arrow = cur as ArrowWidget;
           this.updateArrow(arrow, prevState.widgets);
-
+          
           return {
             ...acc,
             [arrow.id]: {
@@ -161,24 +221,98 @@ class App extends React.Component<{}, State> {
             },
           };
         }, {} as Record<string, Widget>);
+  
+        return {
+          lastX: mousePosition.x,
+          lastY: mousePosition.y,
+          widgets: {
+            ...prevState.widgets,
+            [draggingWidget.id]: draggingWidget,
+            ...connectedArrows,
+          },
+        };
+      } else if(draggingWidget.type === "arrow") {
+        // update arrow dragged end
+        this.updateDisconnectedArrow(draggingWidget, prevState.widgets, mousePosition);
+        
+        return {
+          lastX: mousePosition.x,
+          lastY: mousePosition.y,
+          widgets: {
+            ...prevState.widgets,
+            [draggingWidget.id]: draggingWidget,
+          },
+        };
+      }
 
-      return {
-        lastX: clientX,
-        lastY: clientY,
-        widgets: {
-          ...prevState.widgets,
-          [dragged.id]: dragged,
-          ...connectedArrows,
-        },
-      };
+      return { ...prevState };
     });
   };
 
-  handleDragStart = (id: string, e: React.MouseEvent<HTMLDivElement>) => {
+  handleMouseHoverSticky = (id: string, e: React.MouseEvent<HTMLDivElement>) => {
+    const mousePosition: Position = {x: e.clientX, y: e.clientY };
+    
+    this.setState((prevState) => {
+      if (!prevState.dragging || !prevState.lastX || !prevState.lastY)
+        return { ...prevState };
+      
+      // stick to widget when hovering while dragging
+      const draggingWidget = { ...prevState.widgets[prevState.dragging] };
+      if(draggingWidget.type === "arrow" && draggingWidget.start !== id && draggingWidget.end !== id) {
+        // connect to widget and update arrow
+        draggingWidget.start = draggingWidget.start ?? id;
+        draggingWidget.end = draggingWidget.end ?? id;
+        this.updateArrow(draggingWidget, prevState.widgets);
+        
+        return {
+          lastX: mousePosition.x,
+          lastY: mousePosition.y,
+          widgets: {
+            ...prevState.widgets,
+            [draggingWidget.id]: draggingWidget,
+          },
+        };
+      }
+      return { ...prevState };
+    });
+  }
+
+  handleMouseLeaveSticky = (id: string, e: React.MouseEvent<HTMLDivElement>) => {
+    const mousePosition: Position = {x: e.clientX, y: e.clientY };
+    
+    this.setState((prevState) => {
+      if (!prevState.dragging || !prevState.lastX || !prevState.lastY)
+        return { ...prevState };
+      
+      const draggingWidget = { ...prevState.widgets[prevState.dragging] };
+      if(draggingWidget.type === "arrow" && draggingWidget.start && draggingWidget.end && (draggingWidget.start === id || draggingWidget.end === id)) {
+        // disconnect from widget and update arrow
+        draggingWidget.start = draggingWidget.start === id ? null: draggingWidget.start;
+        draggingWidget.end = draggingWidget.end === id ? null : draggingWidget.end;
+        this.updateDisconnectedArrow(draggingWidget, prevState.widgets, mousePosition);
+        
+        return {
+          lastX: mousePosition.x,
+          lastY: mousePosition.y,
+          widgets: {
+            ...prevState.widgets,
+            [draggingWidget.id]: draggingWidget,
+          },
+        };
+      }
+      return { ...prevState };
+    });
+  }
+
+  handleWidgetDragStart = (id: string, e: React.MouseEvent<HTMLDivElement>) => {
     const { clientX: initialX, clientY: initialY } = e;
     e.stopPropagation();
 
-    if (e.button !== 0) return;
+    if (e.button !== 0)
+      return;
+
+    if(this.state.dragging)
+      return;
 
     this.setState({
       dragging: id,
@@ -191,6 +325,17 @@ class App extends React.Component<{}, State> {
   };
 
   handleKeyDown = (e: React.KeyboardEvent) => {
+    if(e.key === "c") {
+      const newCursor = this.state.cursor === "auto" ? "crosshair" : "auto";
+      if(newCursor === "auto") {
+        this.cancelArrowCreation();
+      } else {
+        this.setState({
+          cursor: newCursor,
+        });
+      }
+    }
+
     if ((e.key === "Backspace" || e.key === "Delete") && this.state.selected) {
       this.setState((prevState) => {
         const id = prevState.selected || "";
@@ -219,6 +364,12 @@ class App extends React.Component<{}, State> {
       
       if (!prevState.dragging)
         return { ...prevState };
+      
+      // ignore MouseUp when dragging arrows
+      const draggingWidget = { ...prevState.widgets[prevState.dragging] };
+      if(draggingWidget.type === "arrow") {
+        return { ...prevState };
+      }
       
       const connectedArrows = Object.values(prevState.widgets)
       .filter(
@@ -263,7 +414,13 @@ class App extends React.Component<{}, State> {
     });
   };
 
-  handleRef = (ref: HTMLDivElement) => (this.ref = ref);
+  handleRef = (ref: HTMLDivElement) => {
+    this.ref = ref;
+    // start focused to listen for key presses
+    if(this.ref) {
+      this.ref.focus();
+    }
+  }
 
   // finds if this arrow should be a part of a branchChart
   setArrowChartBranch(arrow: ArrowWidget, widgets: Record<string, Widget>, dragging: boolean) {
@@ -332,21 +489,58 @@ class App extends React.Component<{}, State> {
     return chartBranchArrows.length > 0 ? chartBranchArrows[0] : null;
   }
 
-  // updates arrow points (start/end) in both position and type
-  updateArrow(arrow: ArrowWidget, widgets: Record<string, Widget>) {
+  // used when dragging an arrow point that is connected to only one widget 
+  updateDisconnectedArrow(arrow: ArrowWidget, widgets: Record<string, Widget>, draggingPosition: Position) {
     const startWidget = widgets[arrow.start || ""];
     const endWidget = widgets[arrow.end || ""];
-    const isHorizontalStart = Math.abs((startWidget.x - endWidget.x) / (startWidget.y - endWidget.y)) > 1;
+    
+    const connectedWidget = startWidget ? startWidget : endWidget;
+
+    const startPosition: Position = startWidget ? {x: startWidget.x, y: startWidget.y } : draggingPosition;
+    const endPosition: Position = endWidget ? {x: endWidget.x, y: endWidget.y } : draggingPosition;
 
     // initial dummy values
     let points: Point[] = [{type: "right", x: 0, y: 0}, {type: "left", x: 1, y: 0}];
 
+    const isHorizontalStart = Math.abs((startPosition.x - endPosition.x) / (startPosition.y - endPosition.y)) > 1;
+    // change connections depending on positioning (and wich side is the connectedWidget)
+    if(isHorizontalStart) {
+      if(connectedWidget.x + connectedWidget.width + TOLERANCE < draggingPosition.x) {
+        points[0].type = startWidget ? "right" : "left";
+        points[1].type = startWidget ? "left" : "right";
+      } else {
+        points[0].type = startWidget ? "left" : "right";
+        points[1].type = startWidget ? "right" : "left";
+      }
+    } else {
+      if (connectedWidget.y + connectedWidget.height + TOLERANCE < draggingPosition.y) {
+        points[0].type = startWidget ? "bottom" : "top";
+        points[1].type = startWidget ? "top" : "bottom";
+      } else {
+        points[0].type = startWidget ? "top" : "bottom";
+        points[1].type = startWidget ? "bottom" : "top";
+      }
+    }
+    points[0] = startWidget ? this.getWidgetSideMidPosition(points[0], startWidget) : {...points[0], x: draggingPosition.x, y: draggingPosition.y};
+    points[1] = endWidget ? this.getWidgetSideMidPosition(points[1], endWidget) : {...points[1], x: draggingPosition.x, y: draggingPosition.y};
+    arrow.points = points;
+  }
+
+  // updates arrow points (start/end) in both position and type
+  updateArrow(arrow: ArrowWidget, widgets: Record<string, Widget>) {
+    const startWidget = widgets[arrow.start || ""];
+    const endWidget = widgets[arrow.end || ""];
+    
+    // initial dummy values
+    let points: Point[] = [{type: "right", x: 0, y: 0}, {type: "left", x: 1, y: 0}];
+    
     if(arrow.points.length === 2) {
       points = arrow.points;
     }
-
+    
     // stick to your branch side
     if(!this.state.settings.stickToConvergentWidgetSide || arrow.arrowType !== "chartBranch") {
+      const isHorizontalStart = Math.abs((startWidget.x - endWidget.x) / (startWidget.y - endWidget.y)) > 1;
       // change connections depending on positioning
       if(isHorizontalStart) {
         if (startWidget.x + startWidget.width + TOLERANCE < endWidget.x) {
@@ -512,13 +706,11 @@ class App extends React.Component<{}, State> {
       const intersection = max2 - min1;
       if(intersection <= ARROW_MARGIN * 2) return null;
       
-      console.log(`inters1 ${intersection}`);
       return min1 + (intersection / 2);
     } else if(max1 > min2 && max1 < max2) {
       const intersection = max1 - min2;
       if(intersection <= ARROW_MARGIN * 2) return null;
 
-      console.log(`inters2 ${intersection}`);
       return max1 - (intersection / 2);
     }
 
@@ -563,7 +755,7 @@ class App extends React.Component<{}, State> {
           style={{ cursor }}
           className="App"
           tabIndex={1}
-          onContextMenu={this.handleRightClick}
+          onClick={this.handleClick}
           onDoubleClick={this.handleDoubleClick}
           onKeyDown={this.handleKeyDown}
           onMouseMove={this.handleDrag}
@@ -576,13 +768,15 @@ class App extends React.Component<{}, State> {
               return (
                 <Sticky
                 cursor={cursor}
-                onRightClick={this.handleStickyRightClick}
-                onDragStart={this.handleDragStart}
-                  selected={selected === w.id}
-                  widget={w}
-                  key={w.id}
-                  />
-                  );
+                onClick={this.handleStickyClick}
+                onDragStart={this.handleWidgetDragStart}
+                onMouseHover={this.handleMouseHoverSticky}
+                onMouseLeave={this.handleMouseLeaveSticky}
+                selected={selected === w.id}
+                widget={w}
+                key={w.id}
+                />
+                );
             }
             
             if (w.type === "arrow") {
