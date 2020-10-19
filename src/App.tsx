@@ -34,13 +34,13 @@ interface State {
     stickToConvergentWidgetSide: boolean;
   };
   cursor: React.CSSProperties["cursor"];
-  dragging: string | null;
+  dragging: string[] | null;
   initialId: string | null;
   initialX: number | null;
   initialY: number | null;
   lastX: number | null;
   lastY: number | null;
-  selected: string | null;
+  selected: string[] | null;
   widgets: Record<string, Widget>;
 }
 
@@ -63,11 +63,10 @@ class App extends React.Component<{}, State> {
   };
 
   cancelArrowCreation() {
-    
     this.setState((prevState) => {
-      if(prevState.dragging) {
+      if(prevState.dragging && prevState.dragging.length) {
         // delete dragging arrow if any
-        const draggingWidget = { ...prevState.widgets[prevState.dragging] };
+        const draggingWidget = { ...prevState.widgets[prevState.dragging[0]] };
         if(draggingWidget.type === "arrow") {
           const prevWidgets = prevState.widgets;
           delete prevWidgets[draggingWidget.id];
@@ -131,7 +130,7 @@ class App extends React.Component<{}, State> {
             ...prevState.widgets,
             [arrow.id]: arrow,
           },
-          dragging: arrow.id,
+          dragging: [arrow.id],
           initialX: mousePosition.x,
           initialY: mousePosition.y,
           lastX: mousePosition.x,
@@ -146,7 +145,7 @@ class App extends React.Component<{}, State> {
       if (!prevState.dragging)
         return { ...prevState };
       
-      const draggingArrow = { ...prevState.widgets[prevState.dragging] } as ArrowWidget;
+      const draggingArrow = { ...prevState.widgets[prevState.dragging[0]] } as ArrowWidget;
       const startWidget = prevState.widgets[draggingArrow.start ?? id];
       const endWidget = prevState.widgets[draggingArrow.end ?? id];
 
@@ -182,7 +181,7 @@ class App extends React.Component<{}, State> {
     const stickyWidth = e.ctrlKey ? 150 : 100;
     const s = stickyFactory({ x: e.clientX, y: e.clientY, width: stickyWidth });
     this.setState((prevState) => ({
-      selected: s.id,
+      selected: [s.id],
       widgets: {
         ...prevState.widgets,
         [s.id]: s,
@@ -197,22 +196,29 @@ class App extends React.Component<{}, State> {
       if (!prevState.dragging || !prevState.lastX || !prevState.lastY)
         return { ...prevState };
       
-      const draggingWidget = { ...prevState.widgets[prevState.dragging] };
-      if(draggingWidget.type === "sticky") {
-        // move dragged sticky
-        draggingWidget.x = draggingWidget.x + mousePosition.x - prevState.lastX;
-        draggingWidget.y = draggingWidget.y + mousePosition.y - prevState.lastY;
+      const draggingWidgets = prevState.dragging.map(id => prevState.widgets[id]);
+      if(draggingWidgets.length > 1 || draggingWidgets[0].type === "sticky") {
+        console.log(draggingWidgets);
+        const deltaX = mousePosition.x - prevState.lastX;
+        const deltaY = mousePosition.y - prevState.lastY;
 
         // update connected arrows
         const connectedArrows = Object.values(prevState.widgets)
         .filter(
           (w) =>
             w.type === "arrow" &&
-            (w.start === prevState.dragging || w.end === prevState.dragging)
-        )
+            prevState.dragging &&
+            ((w.start && prevState.dragging.includes(w.start)) ||
+            (w.end && prevState.dragging.includes(w.end))))
         .reduce((acc, cur) => {
           const arrow = cur as ArrowWidget;
           this.updateArrow(arrow, prevState.widgets);
+          if (prevState.dragging &&
+            ((arrow.start && prevState.dragging.includes(arrow.start)) &&
+            (arrow.end && prevState.dragging.includes(arrow.end))) &&
+            arrow.chartBranch && arrow.chartBranch.type === 'oneToOne') {
+              arrow.chartBranch.position = arrow.chartBranch.position + (arrow.initialIsHorizontal ? deltaX / 2 : deltaY / 2);
+            }
           
           return {
             ...acc,
@@ -221,26 +227,39 @@ class App extends React.Component<{}, State> {
             },
           };
         }, {} as Record<string, Widget>);
-  
+        console.log({ connectedArrows });
+    
+        const movedWidgets: Record<string, Widget> = draggingWidgets.reduce((acc, cur) => {
+          return {
+            ...acc,
+            [cur.id]: {
+              ...cur,
+              x: cur.x + deltaX,
+              y: cur.y + deltaY,
+            }
+          };
+        }, {});
         return {
+          ...prevState,
           lastX: mousePosition.x,
           lastY: mousePosition.y,
           widgets: {
             ...prevState.widgets,
-            [draggingWidget.id]: draggingWidget,
+            ...movedWidgets,
             ...connectedArrows,
-          },
+          }
         };
-      } else if(draggingWidget.type === "arrow") {
+      } else if(draggingWidgets[0].type === "arrow") {
+        const draggingArrow = { ...draggingWidgets[0] };
         // update arrow dragged end
-        this.updateDisconnectedArrow(draggingWidget, prevState.widgets, mousePosition);
+        this.updateDisconnectedArrow(draggingArrow, prevState.widgets, mousePosition);
         
         return {
           lastX: mousePosition.x,
           lastY: mousePosition.y,
           widgets: {
             ...prevState.widgets,
-            [draggingWidget.id]: draggingWidget,
+            [draggingArrow.id]: draggingArrow,
           },
         };
       }
@@ -257,19 +276,23 @@ class App extends React.Component<{}, State> {
         return { ...prevState };
       
       // stick to widget when hovering while dragging
-      const draggingWidget = { ...prevState.widgets[prevState.dragging] };
-      if(draggingWidget.type === "arrow" && draggingWidget.start !== id && draggingWidget.end !== id) {
+      const draggingWidgets = prevState.dragging.map(id => prevState.widgets[id]);
+      if(draggingWidgets.length === 1 &&
+        draggingWidgets[0].type === "arrow" &&
+        draggingWidgets[0].start !== id &&
+        draggingWidgets[0].end !== id) {
+        const draggingArrow = { ...draggingWidgets[0] };
         // connect to widget and update arrow
-        draggingWidget.start = draggingWidget.start ?? id;
-        draggingWidget.end = draggingWidget.end ?? id;
-        this.updateArrow(draggingWidget, prevState.widgets);
+        draggingArrow.start = draggingArrow.start ?? id;
+        draggingArrow.end = draggingArrow.end ?? id;
+        this.updateArrow(draggingArrow, prevState.widgets);
         
         return {
           lastX: mousePosition.x,
           lastY: mousePosition.y,
           widgets: {
             ...prevState.widgets,
-            [draggingWidget.id]: draggingWidget,
+            [draggingArrow.id]: draggingArrow,
           },
         };
       }
@@ -284,19 +307,24 @@ class App extends React.Component<{}, State> {
       if (!prevState.dragging || !prevState.lastX || !prevState.lastY)
         return { ...prevState };
       
-      const draggingWidget = { ...prevState.widgets[prevState.dragging] };
-      if(draggingWidget.type === "arrow" && draggingWidget.start && draggingWidget.end && (draggingWidget.start === id || draggingWidget.end === id)) {
+        const draggingWidgets = prevState.dragging.map(id => prevState.widgets[id]);
+        if(draggingWidgets.length === 1 &&
+          draggingWidgets[0].type === "arrow" &&
+          draggingWidgets[0].start && draggingWidgets[0].end &&
+          (draggingWidgets[0].start === id ||
+          draggingWidgets[0].end === id)) {
         // disconnect from widget and update arrow
-        draggingWidget.start = draggingWidget.start === id ? null: draggingWidget.start;
-        draggingWidget.end = draggingWidget.end === id ? null : draggingWidget.end;
-        this.updateDisconnectedArrow(draggingWidget, prevState.widgets, mousePosition);
+        const draggingArrow = { ...draggingWidgets[0] };
+        draggingArrow.start = draggingArrow.start === id ? null : draggingArrow.start;
+        draggingArrow.end = draggingArrow.end === id ? null : draggingArrow.end;
+        this.updateDisconnectedArrow(draggingArrow, prevState.widgets, mousePosition);
         
         return {
           lastX: mousePosition.x,
           lastY: mousePosition.y,
           widgets: {
             ...prevState.widgets,
-            [draggingWidget.id]: draggingWidget,
+            [draggingArrow.id]: draggingArrow,
           },
         };
       }
@@ -305,7 +333,7 @@ class App extends React.Component<{}, State> {
   }
 
   handleWidgetDragStart = (id: string, e: React.MouseEvent<HTMLDivElement>) => {
-    const { clientX: initialX, clientY: initialY } = e;
+    const { clientX: initialX, clientY: initialY, shiftKey } = e;
     e.stopPropagation();
 
     if (e.button !== 0)
@@ -314,9 +342,16 @@ class App extends React.Component<{}, State> {
     if(this.state.dragging)
       return;
 
+    const selected = (this.state.selected && (this.state.selected.includes(id) || shiftKey))
+    ? !this.state.selected.includes(id)
+      ? [...this.state.selected, id]
+      : this.state.selected
+    : [id];
+    const dragging = (this.state.selected && this.state.selected.includes(id)) ? this.state.selected : [id];
+
     this.setState({
-      dragging: id,
-      selected: id,
+      dragging,
+      selected,
       initialX: initialX,
       initialY: initialY,
       lastX: initialX,
@@ -336,16 +371,18 @@ class App extends React.Component<{}, State> {
       }
     }
 
-    if ((e.key === "Backspace" || e.key === "Delete") && this.state.selected) {
+    if ((e.key === "Backspace" || e.key === "Delete") && !!this.state.selected) {
       this.setState((prevState) => {
-        const id = prevState.selected || "";
+        const selectedWidgetsId = prevState.selected || null;
         const prevWidgets = prevState.widgets;
-        delete prevWidgets[id];
-
-        Object.values(prevWidgets).forEach((w) => {
-          if (w.type === "arrow" && (w.start === id || w.end === id))
-            delete prevWidgets[w.id];
+        selectedWidgetsId?.forEach(id => {
+          Object.values(prevWidgets).forEach((w) => {
+            if (w.type === "arrow" && (w.start === id || w.end === id))
+              delete prevWidgets[w.id];
+          });
+          delete prevWidgets[id]
         });
+
         return {
           ...prevState,
           selected: null,
@@ -366,8 +403,8 @@ class App extends React.Component<{}, State> {
         return { ...prevState };
       
       // ignore MouseUp when dragging arrows
-      const draggingWidget = { ...prevState.widgets[prevState.dragging] };
-      if(draggingWidget.type === "arrow") {
+      const draggingWidgets = prevState.dragging.map(id => prevState.widgets[id]);
+      if(draggingWidgets.length === 1 && draggingWidgets[0].type === "arrow") {
         return { ...prevState };
       }
       
@@ -375,7 +412,7 @@ class App extends React.Component<{}, State> {
       .filter(
         (w) =>
           w.type === "arrow" &&
-          (w.start === prevState.dragging || w.end === prevState.dragging)
+          (((w.start && prevState.dragging?.includes(w.start)) || (w.end && prevState.dragging?.includes(w.end))))
       ).map(w=> w as ArrowWidget)
       .reduce((acc, arrow) => {
 
@@ -428,9 +465,9 @@ class App extends React.Component<{}, State> {
       // don't recalculate if chartBranchSide didn't change
       let convergencePoint = arrow.chartBranch.type === "manyToOne" ? arrow.points[1] : arrow.points[0];
       if(convergencePoint.type === arrow.chartBranch.convergenceSide)
-        return;
+      return;
     }
-
+    
     const chartBranchArrow = this.getSharedChartBranchArrow(arrow, widgets);
     // don't force chartBranching while dragging on an empty side of the origin/end widget
     if(dragging && !chartBranchArrow) {
@@ -772,7 +809,7 @@ class App extends React.Component<{}, State> {
                 onDragStart={this.handleWidgetDragStart}
                 onMouseHover={this.handleMouseHoverSticky}
                 onMouseLeave={this.handleMouseLeaveSticky}
-                selected={selected === w.id}
+                selected={!!selected?.includes(w.id)}
                 widget={w}
                 key={w.id}
                 />
