@@ -78,11 +78,14 @@ const pathGenerator = (
     ? start.x + midDistance
     : start.y + midDistance;
 
-  if(chartBranch)
-  {
+  if (chartBranch) {
     const convergenceTarget = chartBranch.type === "manyToOne" ? end : start;
     if(chartBranch.convergenceSide === convergenceTarget.type) {
-      segment2Position = chartBranch.position;
+      segment2Position = isHorizontalStart && x
+        ? x
+        : !isHorizontalStart && y
+        ? y
+        : chartBranch.position;
     }
   }
 
@@ -123,11 +126,31 @@ const pathGenerator = (
   ];
 };
 
-class Arrow extends React.Component<PropTypes, State> {
+class Arrow extends React.PureComponent<PropTypes, State> {
   state: State = { direction: 'other', pointerEventsEnabled: false };
 
   componentDidMount() {
     this.setDirection();
+  }
+
+  componentDidUpdate() {
+    const { start, end } = this.getPoints();
+
+    if (this.state.x && this.state.direction === 'vertical') {
+      const diffStartX = this.state.x - start.x
+      const diffEndX = this.state.x - end.x;
+      if ((diffStartX > 0 && diffEndX > 0) || (diffStartX < 0 && diffEndX < 0)) {
+        this.setState({ x: undefined });
+      }
+    }
+
+    if (this.state.y && this.state.direction === 'horizontal') {
+      const diffStartY = this.state.y - start.y
+      const diffEndY = this.state.y - end.y;
+      if ((diffStartY > 0 && diffEndY > 0) || (diffStartY < 0 && diffEndY < 0)) {
+        this.setState({ y: undefined });
+      }
+    }
   }
 
   setDirection = () => {
@@ -137,7 +160,8 @@ class Arrow extends React.Component<PropTypes, State> {
 
     if (isHorizontalStart !== isHorizontalEnd) this.setState({ direction: 'other' });
 
-    this.setState({ direction: isHorizontalStart ? 'vertical' : 'horizontal' })
+    this.setState({ direction: isHorizontalStart ? 'vertical' : 'horizontal' });
+
   }
 
   getPoints = () => {
@@ -172,15 +196,25 @@ class Arrow extends React.Component<PropTypes, State> {
     const { start, end } = this.getPoints();
 
     if (this.state.direction === 'vertical') {
-      if (clientX > start.x + MIN_SEGMENT_DISTANCE &&
-          clientX + MIN_SEGMENT_DISTANCE < end.x)
-        this.setState({ x: clientX });
+      const minX = Math.min(start.x, end.x);
+      const maxX = Math.max(start.x, end.x);
+
+      const limitStart = minX < clientX - MIN_SEGMENT_DISTANCE;
+      const limitEnd = maxX > clientX + MIN_SEGMENT_DISTANCE;
+
+      if (limitStart && limitEnd && this.state.x !== clientX)
+        this.setState({ x: clientX })
+
       return;
     }
 
+    const minY = Math.min(start.y, end.y);
+    const maxY = Math.max(start.y, end.y);
 
-    if (clientY > start.y + MIN_SEGMENT_DISTANCE &&
-        clientY + MIN_SEGMENT_DISTANCE < end.y)
+    const limitStart = minY < clientY - MIN_SEGMENT_DISTANCE;
+    const limitEnd = maxY > clientY + MIN_SEGMENT_DISTANCE;
+
+    if (limitStart && limitEnd && this.state.y !== clientY)
       this.setState({ y: clientY });
   }
 
