@@ -4,7 +4,7 @@ import { ArrowWidget, ChartBranch, Point } from "../types";
 
 type Direction = 'horizontal' | 'vertical' | 'other';
 
-// const MIN_SEGMENT_DISTANCE = 200;
+const MIN_SEGMENT_DISTANCE = 10;
 
 interface PropTypes {
   widget: ArrowWidget;
@@ -169,13 +169,19 @@ class Arrow extends React.Component<PropTypes, State> {
 
     if(!this.state.pointerEventsEnabled || this.state.direction === 'other') return;
 
+    const { start, end } = this.getPoints();
+
     if (this.state.direction === 'vertical') {
-      this.setState({ x: clientX });
+      if (clientX > start.x + MIN_SEGMENT_DISTANCE &&
+          clientX + MIN_SEGMENT_DISTANCE < end.x)
+        this.setState({ x: clientX });
       return;
     }
 
 
-    this.setState({ y: clientY });
+    if (clientY > start.y + MIN_SEGMENT_DISTANCE &&
+        clientY + MIN_SEGMENT_DISTANCE < end.y)
+      this.setState({ y: clientY });
   }
 
   render() {
