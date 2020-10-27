@@ -2,9 +2,13 @@ import React from "react";
 import "./Sticky.css";
 import { StickyWidget } from "../types";
 
+const SNAPPING_POINT_WIDTH = 20;
+const SNAPPING_POINT_CENTER = SNAPPING_POINT_WIDTH / 2;
+
 interface PropTypes {
   cursor: React.CSSProperties["cursor"];
-  onClick: (id: string, e: React.MouseEvent<HTMLDivElement>) => void;
+  onMouseDown: (id: string, e: React.MouseEvent<HTMLDivElement>) => void;
+  onMouseUp: (id: string, e: React.MouseEvent<HTMLDivElement>) => void;
   onDragStart: (id: string, e: React.MouseEvent<HTMLDivElement>) => void;
   onMouseHover: (id: string, e: React.MouseEvent<HTMLDivElement>) => void;
   onMouseLeave: (id: string, e: React.MouseEvent<HTMLDivElement>) => void;
@@ -17,14 +21,15 @@ class Sticky extends React.Component<PropTypes> {
   initialX: number = 0;
   initialY: number = 0;
 
-  handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const { onClick, widget } = this.props;
-    onClick(widget.id, e);
+  handleDragStart = (e: React.MouseEvent<HTMLDivElement>) => {
+    const { onDragStart, widget, cursor, onMouseDown } = this.props;
+    if (cursor === 'crosshair') onMouseDown(widget.id, e);
+    else onDragStart(widget.id, e);
   };
 
-  handleDragStart = (e: React.MouseEvent<HTMLDivElement>) => {
-    const { onDragStart, widget } = this.props;
-    onDragStart(widget.id, e);
+  handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
+    const { onMouseUp, cursor, widget } = this.props;
+    if (cursor === 'crosshair') onMouseUp(widget.id, e);
   };
   
   handleMouseHover = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -45,7 +50,7 @@ class Sticky extends React.Component<PropTypes> {
     } = this.props;
     return (
       <div
-        onClick={this.handleClick}
+        onMouseUp={this.handleMouseUp}
         onMouseDown={this.handleDragStart}
         onMouseMove={this.handleMouseHover}
         onMouseLeave={this.handleMouseLeave}
@@ -58,7 +63,48 @@ class Sticky extends React.Component<PropTypes> {
           border: selected ? "2px solid blue" : "none",
         }}
         className="Sticky"
-      />
+        >
+        <div
+          className="snapping-point top"
+          style={{
+            top: 0 - SNAPPING_POINT_CENTER,
+            left: (width / 2) - SNAPPING_POINT_CENTER,
+            width: SNAPPING_POINT_WIDTH,
+            height: SNAPPING_POINT_WIDTH,
+          }}
+          id="top"
+        ></div>
+        <div
+          className="snapping-point right"
+          style={{
+            top: (height / 2) - SNAPPING_POINT_CENTER,
+            left: width - SNAPPING_POINT_CENTER,
+            width: SNAPPING_POINT_WIDTH,
+            height: SNAPPING_POINT_WIDTH,
+          }}
+          id="right"
+        ></div>
+        <div
+          className="snapping-point bottom"
+          style={{
+            top: height - SNAPPING_POINT_CENTER,
+            left: (width / 2) - SNAPPING_POINT_CENTER,
+            width: SNAPPING_POINT_WIDTH,
+            height: SNAPPING_POINT_WIDTH,
+          }}
+          id="bottom"
+        ></div>
+        <div
+          className="snapping-point left"
+          style={{
+            top: (height / 2) - SNAPPING_POINT_CENTER,
+            left: 0 - SNAPPING_POINT_CENTER,
+            width: SNAPPING_POINT_WIDTH,
+            height: SNAPPING_POINT_WIDTH,
+          }}
+          id="left"
+        ></div>
+      </div>
     );
   }
 }

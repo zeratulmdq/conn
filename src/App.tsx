@@ -36,6 +36,7 @@ interface State {
   cursor: React.CSSProperties["cursor"];
   dragging: string[] | null;
   initialId: string | null;
+  endId: string | null;
   selected: string[] | null;
   widgets: Record<string, Widget>;
 }
@@ -50,6 +51,7 @@ class App extends React.Component<{}, State> {
     cursor: "auto",
     dragging: null,
     initialId: null,
+    endId: null,
     selected: null,
     widgets: {},
   };
@@ -68,6 +70,7 @@ class App extends React.Component<{}, State> {
             ...prevState,
             dragging: null,
             initialId: null,
+            endId: null,
             cursor: "auto",
             widgets: { ...prevWidgets },
           }
@@ -78,34 +81,57 @@ class App extends React.Component<{}, State> {
         ...prevState,
         dragging: null,
         initialId: null,
+        endId: null,
         cursor: "auto",
       }
     });
   }
-  
-  handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
 
-    if (this.state.initialId) {
-      this.cancelArrowCreation();
+  handleArrowPointDragStart = (id: string, e: React.MouseEvent, isStart: boolean) => {
+    if (isStart) {
+      const end = (this.state.widgets[id] as ArrowWidget).end;
+      this.setState((prevState) => (
+        {
+          ...prevState,
+          cursor: 'crosshair',
+          dragging: [id],
+          endId: end,
+          initialId: null,
+          widgets: {
+            ...prevState.widgets,
+            [id]: {
+              ...prevState.widgets[id],
+              start: null,
+            }
+          }
+        }
+      ));
+    } else {
+      const initial = (this.state.widgets[id] as ArrowWidget).start;
+      this.setState((prevState) => (
+        {
+          ...prevState,
+          cursor: 'crosshair',
+          dragging: [id],
+          initialId: initial,
+          endId: null,
+          widgets: {
+            ...prevState.widgets,
+            [id]: {
+              ...prevState.widgets[id],
+              end: null,
+            }
+          }
+        }
+      ));
     }
   }
 
-  handleStickyClick = (id: string, e: React.MouseEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    if (this.state.initialId === id) {
-      this.cancelArrowCreation();
-      return;
-    }
-
+  handleStickyMouseDown = (id: string, e: React.MouseEvent<HTMLDivElement>) => {
     if (this.state.cursor !== "crosshair")
       return;
-
     // start arrow creation
-    if (!this.state.initialId) {
+    if (!this.state.dragging) {
       const mousePosition: Position = {x: e.clientX, y: e.clientY };
       // this.setState({initialId: id});
 
@@ -130,6 +156,16 @@ class App extends React.Component<{}, State> {
 
       return;
     }
+  }
+
+  handleStickyMouseUp = (id: string, e: React.MouseEvent<HTMLDivElement>) => {
+    if (this.state.initialId === id || this.state.endId === id) {
+      this.cancelArrowCreation();
+      return;
+    }
+
+    if (this.state.cursor !== "crosshair")
+      return;
     
     this.setState((prevState) => {
       if (!prevState.dragging)
@@ -158,6 +194,7 @@ class App extends React.Component<{}, State> {
         cursor: "auto",
         dragging: null,
         initialId: null,
+        endId: null,
         widgets: {
           ...prevState.widgets,
           [draggingArrow.id]: draggingArrow,
@@ -235,8 +272,7 @@ class App extends React.Component<{}, State> {
     } else if (draggingWidgets[0].type === "arrow" && !this.mouseOverSticky) {
       const draggingArrow = { ...draggingWidgets[0] };
       // update arrow dragged end
-      console.log('update disconnected arrow');
-      if (!draggingArrow.end)
+      if (!draggingArrow.end || !draggingArrow.start)
         this.updateDisconnectedArrow(draggingArrow, widgets, this.mousePosition);
       
       this.setState({
@@ -262,7 +298,6 @@ class App extends React.Component<{}, State> {
       // connect to widget and update arrow
       draggingArrow.start = draggingArrow.start ?? id;
       draggingArrow.end = draggingArrow.end ?? id;
-      console.log('update arrow');
       this.updateArrow(draggingArrow, widgets);
       const newWidgets = { ...widgets, [draggingArrow.id]: draggingArrow };
       this.setState({
@@ -357,16 +392,17 @@ class App extends React.Component<{}, State> {
   };
 
   handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
+    const draggingWidgets = this.state.dragging && this.state.dragging.map(id => this.state.widgets[id]);
+    if(draggingWidgets && draggingWidgets.length === 1 && draggingWidgets[0].type === "arrow") {
+      if (this.state.initialId || this.state.endId) {
+        this.cancelArrowCreation();
+      }
+      return;
+    }
     this.setState((prevState) => {
       
       if (!prevState.dragging)
         return { ...prevState };
-      
-      // ignore MouseUp when dragging arrows
-      const draggingWidgets = prevState.dragging.map(id => prevState.widgets[id]);
-      if(draggingWidgets.length === 1 && draggingWidgets[0].type === "arrow") {
-        return { ...prevState };
-      }
       
       const connectedArrows = Object.values(prevState.widgets)
       .filter(
@@ -524,7 +560,7 @@ class App extends React.Component<{}, State> {
   }
 
   // updates arrow points (start/end) in both position and type
-  updateArrow(arrow: ArrowWidget, widgets: Record<string, Widget>) {
+  updateArrow(arrow: ArrowWidget, widgets: Record<string, Widget>, snappingPoint?: string | null) {
     const startWidget = widgets[arrow.start || ""];
     const endWidget = widgets[arrow.end || ""];
     
@@ -750,9 +786,8 @@ class App extends React.Component<{}, State> {
         <div
           id="canvas"
           style={{ cursor }}
-          className="App"
+          className={`App ${cursor === 'crosshair' ? 'connector-mode' : ''}`}
           tabIndex={1}
-          onClick={this.handleClick}
           onDoubleClick={this.handleDoubleClick}
           onKeyDown={this.handleKeyDown}
           onMouseMove={this.handleDrag}
@@ -765,7 +800,8 @@ class App extends React.Component<{}, State> {
               return (
                 <Sticky
                 cursor={cursor}
-                onClick={this.handleStickyClick}
+                onMouseDown={this.handleStickyMouseDown}
+                onMouseUp={this.handleStickyMouseUp}
                 onDragStart={this.handleWidgetDragStart}
                 onMouseHover={this.handleMouseHoverSticky}
                 onMouseLeave={this.handleMouseLeaveSticky}
@@ -777,7 +813,7 @@ class App extends React.Component<{}, State> {
             }
             
             if (w.type === "arrow") {
-              return <Arrow widget={w} key={w.id} />;
+              return <Arrow widget={w} key={w.id} onDragPointStart={this.handleArrowPointDragStart}/>;
             }
             
             return null;

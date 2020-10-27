@@ -3,3 +3,7 @@
   position: absolute;
   background-color: yellow;
 }
+
+.Sticky .snapping-point {
+  position: absolute;
+}
