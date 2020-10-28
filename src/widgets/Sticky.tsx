@@ -2,7 +2,7 @@ import React from "react";
 import "./Sticky.css";
 import { StickyWidget } from "../types";
 
-const SNAPPING_POINT_WIDTH = 20;
+const SNAPPING_POINT_WIDTH = 30;
 const SNAPPING_POINT_CENTER = SNAPPING_POINT_WIDTH / 2;
 
 interface PropTypes {
@@ -104,6 +104,15 @@ class Sticky extends React.Component<PropTypes> {
           }}
           id="left"
         ></div>
+        <svg className="auto-affordance">
+        <circle
+          cx={`${width / 2}`}
+          cy={`${height / 2}`}
+          r="5"
+          stroke={'#1c7ff9'}
+          fill='none'
+          ></circle>
+          </svg>
       </div>
     );
   }

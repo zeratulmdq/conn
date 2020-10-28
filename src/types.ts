@@ -39,8 +39,8 @@ export type ArrowWidget = W & {
   type: "arrow";
   points: Point[];
   start: string | null;
-  startPoint?: 'top' | 'right' | 'bottom' | 'left' | null;
-  endPoint?: 'top' | 'right' | 'bottom' | 'left' | null;
+  startPoint?: PointType | null;
+  endPoint?: PointType | null;
   end: string | null;
   arrowType: ArrowType;
   chartBranch: ChartBranch | null;

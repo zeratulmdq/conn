@@ -19,3 +19,19 @@
 	cursor: pointer;
 	pointer-events: all;
 }
+
+.App .Sticky .snapping-point {
+	pointer-events: none;
+}
+
+.App.connector-mode .Sticky .snapping-point {
+	pointer-events: all;
+}
+
+.App.connector-mode .Sticky:hover .snapping-point ~ .auto-affordance {
+  visibility: visible;
+}
+
+.App.connector-mode .Sticky .snapping-point:hover ~ .auto-affordance {
+  visibility: hidden;
+}

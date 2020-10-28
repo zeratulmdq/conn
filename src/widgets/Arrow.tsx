@@ -137,6 +137,7 @@ class Arrow extends React.PureComponent<PropTypes, State> {
     const end = points[1];
     const isHorizontalStart = start.type === "right" || start.type === "left";
     const isHorizontalEnd = end.type === "right" || end.type === "left";
+    const midDistance = isHorizontalStart ? (end.x - start.x) / 2 : (end.y - start.y) / 2;
 
     // 1-segment straight line
     if((isHorizontalStart && start.y === end.y) ||
@@ -149,24 +150,92 @@ class Arrow extends React.PureComponent<PropTypes, State> {
         ];
     }
 
-    // 2-segments line
     if(isHorizontalStart !== isHorizontalEnd) {
+      const willCoverContent = isHorizontalStart
+      ? (end.type === "bottom" && end.y > start.y) || (end.type === "top" && end.y < start.y)
+      : (end.type === "right" && end.x > start.x) || (end.type === "left" && end.x < start.x);
+      // 2-segments line
+      if (!willCoverContent) {
+        const p1 = `${start.x} ${start.y}`;
+        const p2 = isHorizontalStart ? `${end.x} ${start.y}` : `${start.x} ${end.y}`;
+        const p3 = `${end.x} ${end.y}`;
+  
+        const d1 = `M ${p1} L ${p2}`;
+        const d2 = `M ${p2} L ${p3}`;
+        return [
+          this.connectionDot(start.x, start.y, '0', true),
+          <path d={d1} stroke="black" strokeWidth="2" fill="none" key="1" />,
+          <path d={d2} stroke="black" strokeWidth="2" fill="none" key="2" />,
+          this.connectionDot(end.x, end.y, '3'),
+        ];
+      // 4-segments line
+      } else {
+        const p1 = `${start.x} ${start.y}`;
+        const p2 = isHorizontalStart ? `${start.x + midDistance} ${start.y}` : ` ${start.x} ${start.y + midDistance}`;
+        const p5 = `${end.x} ${end.y}`;
+        let p3, p4;
+        if (end.type === "bottom" || end.type === "right") {
+          p3 = isHorizontalStart ? `${start.x + midDistance} ${end.y + 20}` : ` ${end.x + 20} ${start.y + midDistance}`;
+          p4 = isHorizontalStart ? `${end.x} ${end.y + 20}` : ` ${end.x + 20} ${end.y}`;
+        } else {
+          p3 = isHorizontalStart ? `${start.x + midDistance} ${end.y - 20}` : ` ${end.x - 20} ${start.y + midDistance}`;
+          p4 = isHorizontalStart ? `${end.x} ${end.y - 20}` : ` ${end.x - 20} ${end.y}`;
+        }
+
+        const d1 = `M ${p1} L ${p2}`;
+        const d2 = `M ${p2} L ${p3}`;
+        const d3 = `M ${p3} L ${p4}`;
+        const d4 = `M ${p4} L ${p5}`;
+        return [
+          this.connectionDot(start.x, start.y, '0', true),
+          <path d={d1} stroke="black" strokeWidth="2" fill="none" key="1" />,
+          <path
+            key="2"
+            d={d2}
+            stroke="black"
+            strokeWidth="2"
+            fill="none"
+          />,
+          <path d={d3} stroke="black" strokeWidth="2" fill="none" key="3" />,
+          <path d={d4} stroke="black" strokeWidth="2" fill="none" key="4" />,
+          this.connectionDot(end.x, end.y, '5'),
+        ];
+      }
+    }
+    const willCoverContent = isHorizontalStart
+      ? (end.type === "right" && end.x > start.x) || (end.type === "left" && end.x < start.x)
+      : (end.type === "bottom" && end.y > start.y) || (end.type === "top" && end.y < start.y);
+    // 3-segments line
+    if (willCoverContent && !chartBranch) {
       const p1 = `${start.x} ${start.y}`;
-      const p2 = isHorizontalStart ? `${end.x} ${start.y}` : `${start.x} ${end.y}`;
-      const p3 = `${end.x} ${end.y}`;
+      const p4 = `${end.x} ${end.y}`;
+      let p2, p3;
+      if (end.type === "bottom" || end.type === "right") {
+        p2 = isHorizontalStart ? `${end.x + 20} ${start.y}` : ` ${start.x} ${end.y + 20}`;
+        p3 = isHorizontalStart ? `${end.x + 20} ${end.y}` : ` ${end.x} ${end.y + 20}`;
+      } else {
+        p2 = isHorizontalStart ? `${end.x - 20} ${start.y}` : ` ${start.x} ${end.y - 20}`;
+        p3 = isHorizontalStart ? `${end.x - 20} ${end.y}` : ` ${end.x} ${end.y - 20}`;
+      }
 
       const d1 = `M ${p1} L ${p2}`;
       const d2 = `M ${p2} L ${p3}`;
+      const d3 = `M ${p3} L ${p4}`;
+
       return [
         this.connectionDot(start.x, start.y, '0', true),
         <path d={d1} stroke="black" strokeWidth="2" fill="none" key="1" />,
-        <path d={d2} stroke="black" strokeWidth="2" fill="none" key="2" />,
-        this.connectionDot(end.x, end.y, '3'),
+        <path
+          key="2"
+          d={d2}
+          stroke="black"
+          strokeWidth="2"
+          fill="none"
+        />,
+        <path d={d3} stroke="black" strokeWidth="2" fill="none" key="3" />,
+        this.connectionDot(end.x, end.y, '4'),
       ];
     }
-
-    // 3-segments line
-    const midDistance = isHorizontalStart ? (end.x - start.x) / 2 : (end.y - start.y) / 2;
     let segment2Position = isHorizontalStart && x
       ? x
       : !isHorizontalStart && y
