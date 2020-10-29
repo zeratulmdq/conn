@@ -54,8 +54,8 @@ export const stickyFactory = (spec: Partial<StickyWidget>): StickyWidget => ({
   height: spec.height ?? 100,
   width: spec.width ?? 100,
   type: "sticky",
-  x: (spec.x || 0) - 50,
-  y: (spec.y || 0) - 50,
+  x: spec.x || 0,
+  y: spec.y || 0,
 });
 
 export const arrowFactory = (spec: Partial<ArrowWidget>): ArrowWidget => ({

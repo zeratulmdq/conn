@@ -163,6 +163,8 @@ class App extends React.Component<{}, State> {
   }
 
   handleStickyMouseUp = (id: string, e: React.MouseEvent<HTMLDivElement>) => {
+    // avoid executing `handleMouseUp`
+    e.stopPropagation();
     if (this.state.initialId === id || this.state.endId === id) {
       this.cancelArrowCreation();
       return;
@@ -207,8 +209,8 @@ class App extends React.Component<{}, State> {
 
   handleDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     // create rectangular stickies while holding CTRL down
-    const stickyWidth = e.ctrlKey ? 150 : 100;
-    const s = stickyFactory({ x: e.clientX, y: e.clientY, width: stickyWidth });
+    const stickyWidth = (e.ctrlKey || e.metaKey) ? 150 : 100;
+    const s = stickyFactory({ x: e.clientX - (stickyWidth / 2), y: e.clientY - 50, width: stickyWidth });
     this.setState((prevState) => ({
       selected: [s.id],
       widgets: {
@@ -406,11 +408,58 @@ class App extends React.Component<{}, State> {
     this.setState({ selected: null });
   };
 
+    // true when creating an arrow, or when dragging arrow point
+    isDraggingArrow = () => {
+      const draggingWidgets = this.state.dragging && this.state.dragging.map(id => this.state.widgets[id]);
+      return draggingWidgets && draggingWidgets.length === 1 && draggingWidgets[0].type === "arrow";
+    }
+
+    getConnectedStickyPos = (startWidget: StickyWidget, coords: {x: number, y: number}, stickyWidth: number) => {
+      const { x, y } = coords;
+      const startCenterX = startWidget.x + startWidget.width / 2;
+      const startCenterY = startWidget.y + startWidget.height / 2;
+      const dx = Math.abs((startCenterX - x));
+      const dy = Math.abs((startCenterY - y));
+      if (dx > dy) {
+        if (startCenterX < x) return { x, y: y - 50 };
+        return { x: x - stickyWidth, y: y - 50 }
+      } else {
+        if (startCenterY < y) return { x: x - stickyWidth / 2, y };
+        return { x: x - stickyWidth / 2, y: y - 100};
+      }
+    }
+
   handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
-    const draggingWidgets = this.state.dragging && this.state.dragging.map(id => this.state.widgets[id]);
-    if(draggingWidgets && draggingWidgets.length === 1 && draggingWidgets[0].type === "arrow") {
+    if(this.isDraggingArrow()) {
       if (this.state.initialId || this.state.endId) {
-        this.cancelArrowCreation();
+        if (this.state.endId) {
+          this.cancelArrowCreation();
+          return;
+        }
+        // sticky auto-creation after dropping an arrow in the canvas
+        const startWidget = this.state.initialId && this.state.widgets[this.state.initialId];
+        const stickyWidth = (e.ctrlKey || e.metaKey) ? 150 : 100;
+        const pos = this.getConnectedStickyPos(startWidget as StickyWidget, { x: e.clientX, y: e.clientY }, stickyWidth);
+        const s = stickyFactory({ ...pos, width: stickyWidth });
+        const draggingWidgets = this.state.dragging && this.state.dragging.map(id => this.state.widgets[id]);
+        const draggingArrow = draggingWidgets && { ...draggingWidgets[0] as ArrowWidget };
+        if (draggingArrow) {
+          this.setState({
+            selected: [s.id],
+            dragging: null,
+            initialId: null,
+            endId: null,
+            cursor: "auto",
+            widgets: {
+              ...this.state.widgets,
+              [s.id]: s,
+              [draggingArrow.id]: {
+                ...draggingArrow,
+                end: s.id,
+              }
+            },
+          });
+        }
       }
       return;
     }
