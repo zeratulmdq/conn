@@ -10,51 +10,16 @@ const MIN_SEGMENT_DISTANCE = 10;
 interface PropTypes {
   widget: ArrowWidget;
   onDragPointStart: (id: string, e: React.MouseEvent, isStart: boolean) => void;
+  onDragSegmentEnd: (id: string, position?: number) => void;
 }
 
 interface State {
-  direction: Direction;
-  pointerEventsEnabled: boolean;
-  x?: number;
-  y?: number;
+  draggingMiddleSegment: boolean;
+  position?: number;
 }
 
 class Arrow extends React.PureComponent<PropTypes, State> {
-  state: State = { direction: 'other', pointerEventsEnabled: false };
-
-  componentDidMount() {
-    this.setDirection();
-  }
-
-  componentDidUpdate() {
-    const { start, end } = this.getPoints();
-
-    if (this.state.x && this.state.direction === 'vertical') {
-      const diffStartX = this.state.x - start.x
-      const diffEndX = this.state.x - end.x;
-      if ((diffStartX > 0 && diffEndX > 0) || (diffStartX < 0 && diffEndX < 0)) {
-        this.setState({ x: undefined });
-      }
-    }
-
-    if (this.state.y && this.state.direction === 'horizontal') {
-      const diffStartY = this.state.y - start.y
-      const diffEndY = this.state.y - end.y;
-      if ((diffStartY > 0 && diffEndY > 0) || (diffStartY < 0 && diffEndY < 0)) {
-        this.setState({ y: undefined });
-      }
-    }
-  }
-
-  setDirection = () => {
-    const { start, end } = this.getPoints();
-    const isHorizontalStart = start.type === "right" || start.type === "left";
-    const isHorizontalEnd = end.type === "right" || end.type === "left";
-
-    if (isHorizontalStart !== isHorizontalEnd) this.setState({ direction: 'other' });
-
-    this.setState({ direction: isHorizontalStart ? 'vertical' : 'horizontal' });
-  }
+  state: State = { draggingMiddleSegment: false };
 
   getPoints = () => {
     const { points } = this.props.widget;
@@ -64,20 +29,17 @@ class Arrow extends React.PureComponent<PropTypes, State> {
     return { start, end }
   }
 
-  enablePointerEvents = () => {
-    if (this.state.pointerEventsEnabled) return;
-
-    console.log('enable pointer events')
-
-    this.setState({ pointerEventsEnabled: true})
+  handleSegmentDragStart = () => {
+    if (this.state.draggingMiddleSegment) return;
+    this.setState({ draggingMiddleSegment: true})
   }
 
-  disablePointerEvents = () => {
-    if (!this.state.pointerEventsEnabled) return;
-
-    console.log('disable pointer events')
-
-    this.setState({ pointerEventsEnabled: false})
+  handleSegmentDragEnd = () => {
+    if (!this.state.draggingMiddleSegment) return;
+    // Create chart branch afeter dragging middle segment
+    const pos = this.state.position;
+    this.props.onDragSegmentEnd(this.props.widget.id, pos);
+    this.setState({ draggingMiddleSegment: false, position: undefined })
   }
 
   connectionDot = (x: number, y: number, key: string, isStart?: boolean) => {
@@ -97,41 +59,48 @@ class Arrow extends React.PureComponent<PropTypes, State> {
   };
 
   handleMouseMove = ({ clientX, clientY }: React.MouseEvent<SVGSVGElement, MouseEvent>) => {
-    this.setDirection();
-
-    if(!this.state.pointerEventsEnabled || this.state.direction === 'other') return;
+    if(!this.state.draggingMiddleSegment) return;
 
     const { start, end } = this.getPoints();
 
-    if (this.state.direction === 'vertical') {
+    if (start.type === 'right' || start.type === 'left') {
       const minX = Math.min(start.x, end.x);
       const maxX = Math.max(start.x, end.x);
+      if (start.type === end.type) {
+        if (maxX < clientX - MIN_SEGMENT_DISTANCE || clientX + MIN_SEGMENT_DISTANCE < minX) {
+          this.setState({ position: clientX });
+          return;
+        }
+      }
 
       const limitStart = minX < clientX - MIN_SEGMENT_DISTANCE;
       const limitEnd = maxX > clientX + MIN_SEGMENT_DISTANCE;
 
-      if (limitStart && limitEnd && this.state.x !== clientX)
-        this.setState({ x: clientX })
-
-      return;
+      if (limitStart && limitEnd && this.state.position !== clientX)
+        this.setState({ position: clientX })
+        return;
     }
 
     const minY = Math.min(start.y, end.y);
     const maxY = Math.max(start.y, end.y);
+    if (start.type === end.type) {
+      if (maxY < clientY - MIN_SEGMENT_DISTANCE || clientY + MIN_SEGMENT_DISTANCE < maxY) {
+        this.setState({ position: clientY });
+        return;
+      }
+    }
 
     const limitStart = minY < clientY - MIN_SEGMENT_DISTANCE;
     const limitEnd = maxY > clientY + MIN_SEGMENT_DISTANCE;
 
-    if (limitStart && limitEnd && this.state.y !== clientY)
-      this.setState({ y: clientY });
+    if (limitStart && limitEnd && this.state.position !== clientY)
+      this.setState({ position: clientY });
   }
 
   pathGenerator = (
     points: Point[],
     chartBranch: ChartBranch | null,
-    enablePointerEvents: () => void,
-    x: number | undefined,
-    y: number | undefined
+    position: number | undefined,
   ) => {
     const start = points[0];
     const end = points[1];
@@ -206,6 +175,7 @@ class Arrow extends React.PureComponent<PropTypes, State> {
       ? (end.type === "right" && end.x > start.x) || (end.type === "left" && end.x < start.x)
       : (end.type === "bottom" && end.y > start.y) || (end.type === "top" && end.y < start.y);
     // 3-segments line
+    const cursor = isHorizontalStart ? 'ew-resize' : 'ns-resize';
     if (willCoverContent && !chartBranch) {
       const p1 = `${start.x} ${start.y}`;
       const p4 = `${end.x} ${end.y}`;
@@ -231,15 +201,18 @@ class Arrow extends React.PureComponent<PropTypes, State> {
           stroke="black"
           strokeWidth="2"
           fill="none"
+          style={{
+            cursor,
+            pointerEvents: 'auto'
+          }}
+          onMouseDown={this.handleSegmentDragStart}
         />,
         <path d={d3} stroke="black" strokeWidth="2" fill="none" key="3" />,
         this.connectionDot(end.x, end.y, '4'),
       ];
     }
-    let segment2Position = isHorizontalStart && x
-      ? x
-      : !isHorizontalStart && y
-      ? y
+    let segment2Position = position
+      ? position
       : isHorizontalStart
       ? start.x + midDistance
       : start.y + midDistance;
@@ -248,10 +221,8 @@ class Arrow extends React.PureComponent<PropTypes, State> {
     {
       const convergenceTarget = chartBranch.type === "manyToOne" ? end : start;
       if(chartBranch.convergenceSide === convergenceTarget.type) {
-        segment2Position = isHorizontalStart && x
-          ? x
-          : !isHorizontalStart && y
-          ? y
+        segment2Position = position
+          ? position
           : chartBranch.position;
       }
     }
@@ -264,8 +235,6 @@ class Arrow extends React.PureComponent<PropTypes, State> {
     const d1 = `M ${p1} L ${p2}`;
     const d2 = `M ${p2} L ${p3}`;
     const d3 = `M ${p3} L ${p4}`;
-
-    const cursor = isHorizontalStart ? 'ew-resize' : 'ns-resize'
 
     return [
       this.connectionDot(start.x, start.y, '0', true),
@@ -280,7 +249,7 @@ class Arrow extends React.PureComponent<PropTypes, State> {
           cursor,
           pointerEvents: 'auto'
         }}
-        onMouseDown={enablePointerEvents}
+        onMouseDown={this.handleSegmentDragStart}
       />,
       <path d={d3} stroke="black" strokeWidth="2" fill="none" key="3" />,
       this.connectionDot(end.x, end.y, '4'),
@@ -291,9 +260,7 @@ class Arrow extends React.PureComponent<PropTypes, State> {
     const path = this.pathGenerator(
       this.props.widget.points,
       this.props.widget.chartBranch,
-      this.enablePointerEvents,
-      this.state.x,
-      this.state.y
+      this.state.position,
     );
 
     return (
@@ -302,12 +269,12 @@ class Arrow extends React.PureComponent<PropTypes, State> {
           position: "absolute",
           top: 0,
           left: 0,
-          pointerEvents: this.state.pointerEventsEnabled ? "auto" : "none",
+          pointerEvents: this.state.draggingMiddleSegment ? "auto" : "none",
         }}
         xmlns="http://www.w3.org/2000/svg"
         version="1.1"
         className="Arrow"
-        onMouseUp={this.disablePointerEvents}
+        onMouseUp={this.handleSegmentDragEnd}
         onMouseMove={this.handleMouseMove}
       >
         { path }

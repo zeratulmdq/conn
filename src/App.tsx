@@ -309,7 +309,6 @@ class App extends React.Component<{}, State> {
             // connect to widget and update arrow
             draggingArrow.start = draggingArrow.start ?? id;
             draggingArrow.end = draggingArrow.end ?? id;
-            console.log('snapping point: ', target as PointType || 'auto');
             this.updateArrow(draggingArrow, widgets, target as PointType || 'auto', isStart);
             const newWidgets = { ...widgets, [draggingArrow.id]: draggingArrow };
             this.setState({
@@ -445,9 +444,11 @@ class App extends React.Component<{}, State> {
         const draggingWidgets = this.state.dragging && this.state.dragging.map(id => this.state.widgets[id]);
         const draggingArrow = draggingWidgets && { ...draggingWidgets[0] as ArrowWidget };
         const draggingPoint = draggingArrow && draggingArrow.points[1];
-        if (!draggingPoint) return;
+        if (!draggingPoint || !draggingArrow) return;
         const pos = this.getConnectedStickyPos(draggingPoint, stickyWidth);
         const s = stickyFactory({ ...pos, width: stickyWidth });
+        draggingArrow.end = s.id;
+        draggingArrow.initialIsHorizontal = draggingArrow.points[0].type === 'right' || draggingArrow.points[0].type === 'left';
         // update chart branches state (for both start and end arrows)
         this.setArrowChartBranch(draggingArrow as ArrowWidget, this.state.widgets, false);
         if (draggingArrow) {
@@ -462,7 +463,6 @@ class App extends React.Component<{}, State> {
               [s.id]: s,
               [draggingArrow.id]: {
                 ...draggingArrow,
-                end: s.id,
               }
             },
           });
@@ -526,13 +526,20 @@ class App extends React.Component<{}, State> {
     }
   }
 
+  handleDragSegmentEnd = (arrowId: string, position?: number) => {
+    const arrow = this.state.widgets[arrowId];
+    this.setArrowChartBranch(arrow as ArrowWidget, this.state.widgets, false, position);
+  }
+
   // finds if this arrow should be a part of a branchChart
-  setArrowChartBranch(arrow: ArrowWidget, widgets: Record<string, Widget>, dragging: boolean) {
+  setArrowChartBranch(arrow: ArrowWidget, widgets: Record<string, Widget>, dragging: boolean, position?: number) {
     if(!this.state.settings.stickToConvergentWidgetSide && arrow.chartBranch) {
-      // don't recalculate if chartBranchSide didn't change
+      // don't recalculate if chartBranchSide and position didn't change
       let convergencePoint = arrow.chartBranch.type === "manyToOne" ? arrow.points[1] : arrow.points[0];
-      if(convergencePoint.type === arrow.chartBranch.convergenceSide)
-      return;
+      if(convergencePoint.type === arrow.chartBranch.convergenceSide && (!position || arrow.chartBranch.position === position)) {
+        console.log('not recalculating chart branch');
+        return;
+      }
     }
     
     const chartBranchArrow = this.getSharedChartBranchArrow(arrow, widgets);
@@ -540,12 +547,13 @@ class App extends React.Component<{}, State> {
     // or if arrow has explicitly set start or end point
     if((dragging && !chartBranchArrow)) {
       arrow.chartBranch = null;
+      console.log('setting chart branch null');
       return;
     }
 
     arrow.arrowType = "chartBranch";
     
-    if(chartBranchArrow && chartBranchArrow.chartBranch) {
+    if(chartBranchArrow && chartBranchArrow.chartBranch && !position) {
       console.log('become part of an existing chartBranch');
       // become part of an existing chartBranch
       if(chartBranchArrow.chartBranch.type === "oneToOne") {
@@ -559,19 +567,22 @@ class App extends React.Component<{}, State> {
         }
       }
       arrow.chartBranch = Object.assign({}, chartBranchArrow.chartBranch);
-    } else if (!arrow.startPoint && !arrow.endPoint) {
+    } else if ((!arrow.startPoint && !arrow.endPoint) || position) {
       // new lonely charBranch arrow
       console.log('new lonely charBranch arrow');
       let chartBranch: ChartBranch = {
-        position: 0,
+        position: position || 0,
         convergenceSide: arrow.points[0].type,
         type: "oneToOne"
       };
-      // on new branch, set 2nd segment position to half the distance in X or Y depending on orientation 
-      if(toOrientation(chartBranch.convergenceSide) === "horizontal") {
-        chartBranch.position = arrow.points[0].x + ((arrow.points[1].x - arrow.points[0].x) / 2);
-      } else {
-        chartBranch.position = arrow.points[0].y + ((arrow.points[1].y - arrow.points[0].y) / 2);
+      // on new branch, set 2nd segment position to half the distance in X or Y depending on orientation
+      // unless explicit position is passed as parameter
+      if (!position) {
+        if(toOrientation(chartBranch.convergenceSide) === "horizontal") {
+          chartBranch.position = arrow.points[0].x + ((arrow.points[1].x - arrow.points[0].x) / 2);
+        } else {
+          chartBranch.position = arrow.points[0].y + ((arrow.points[1].y - arrow.points[0].y) / 2);
+        }
       }
       arrow.chartBranch = chartBranch;
     }
@@ -628,8 +639,6 @@ class App extends React.Component<{}, State> {
           points[1].type = arrow.endPoint || (startWidget ? "bottom" : "top");
         }
       }
-      console.log(points[0].type, points[1].type);
-      console.log(points[0].type, points[1].type);
       points[0] = startWidget ? this.getWidgetSideMidPosition(points[0], startWidget) : {...points[0], x: draggingPosition.x, y: draggingPosition.y};
       points[1] = endWidget ? this.getWidgetSideMidPosition(points[1], endWidget) : {...points[1], x: draggingPosition.x, y: draggingPosition.y};
       arrow.points = points;
@@ -702,6 +711,7 @@ class App extends React.Component<{}, State> {
       
       // check if being a chartSide arrow
       if(this.isChartSideArrow(arrow, widgets)) {
+        console.log('IS CHART SIDE ARROW');
         this.updateArrowChartSide(arrow, startWidget, endWidget);
       }
       
@@ -905,21 +915,25 @@ class App extends React.Component<{}, State> {
             if (w.type === "sticky") {
               return (
                 <Sticky
-                cursor={cursor}
-                onMouseDown={this.handleStickyMouseDown}
-                onMouseUp={this.handleStickyMouseUp}
-                onDragStart={this.handleWidgetDragStart}
-                onMouseHover={this.handleMouseHoverSticky}
-                onMouseLeave={this.handleMouseLeaveSticky}
-                selected={!!selected?.includes(w.id)}
-                widget={w}
-                key={w.id}
+                  cursor={cursor}
+                  onMouseDown={this.handleStickyMouseDown}
+                  onMouseUp={this.handleStickyMouseUp}
+                  onDragStart={this.handleWidgetDragStart}
+                  onMouseHover={this.handleMouseHoverSticky}
+                  onMouseLeave={this.handleMouseLeaveSticky}
+                  selected={!!selected?.includes(w.id)}
+                  widget={w}
+                  key={w.id}
                 />
                 );
             }
             
             if (w.type === "arrow") {
-              return <Arrow widget={w} key={w.id} onDragPointStart={this.handleArrowPointDragStart}/>;
+              return <Arrow
+                widget={w} key={w.id}
+                onDragPointStart={this.handleArrowPointDragStart}
+                onDragSegmentEnd={this.handleDragSegmentEnd}
+              />;
             }
             
             return null;
