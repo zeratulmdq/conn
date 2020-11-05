@@ -21,6 +21,9 @@ export const ARROW_MARGIN = 10;
 export const TWO_SEGMENT_ARROW_MIN = 20;
 export const STICKY_HEIGHT = 100;
 
+const arrowIsHorizontal = (arrow: ArrowWidget) =>
+  arrow.points[0].type === 'left' || arrow.points[0].type === 'right';
+
 export const settingsStyle: React.CSSProperties = {
   position: "absolute",
   top: 0,
@@ -226,6 +229,7 @@ class App extends React.Component<{}, State> {
       return;
     const draggingWidgets = dragging.map(id => widgets[id]);
     if(draggingWidgets.length > 1 || draggingWidgets[0].type === "sticky") {
+      const arrows = Object.values(widgets).filter(w => w.type === "arrow") as ArrowWidget[];
       // update connected arrows
       const connectedArrows = Object.values(widgets)
       .filter(
@@ -240,8 +244,20 @@ class App extends React.Component<{}, State> {
         if (dragging &&
           ((arrow.start && dragging.includes(arrow.start)) &&
           (arrow.end && dragging.includes(arrow.end))) &&
-          arrow.chartBranch && arrow.chartBranch.type === 'oneToOne') {
-            arrow.chartBranch.position = arrow.chartBranch.position + (arrow.initialIsHorizontal ? deltaX : deltaY);
+          arrow.chartBranch) {
+            if (arrow.chartBranch.type === 'oneToOne') {
+              arrow.chartBranch.position = arrow.chartBranch.position + (arrowIsHorizontal(arrow) ? deltaX : deltaY);
+            } else {
+              arrows.forEach(a => {
+                if (a.chartBranch && a.chartBranch?.position === arrow.chartBranch?.position) {
+                  if ((a.end && !dragging.includes(a.end)) || (a.start && !dragging.includes(a.start))) {
+                    return;
+                  } else {
+                    arrow.chartBranch.position = arrow.chartBranch.position + (arrowIsHorizontal(arrow) ? deltaX : deltaY);
+                  }
+                }
+              })
+            }
           }
         
         return {
@@ -448,7 +464,7 @@ class App extends React.Component<{}, State> {
         const pos = this.getConnectedStickyPos(draggingPoint, stickyWidth);
         const s = stickyFactory({ ...pos, width: stickyWidth });
         draggingArrow.end = s.id;
-        draggingArrow.initialIsHorizontal = draggingArrow.points[0].type === 'right' || draggingArrow.points[0].type === 'left';
+        draggingArrow.initialIsHorizontal = arrowIsHorizontal(draggingArrow);
         // update chart branches state (for both start and end arrows)
         this.setArrowChartBranch(draggingArrow as ArrowWidget, this.state.widgets, false);
         if (draggingArrow) {
@@ -498,7 +514,7 @@ class App extends React.Component<{}, State> {
         }
           
         // update initial axis
-        arrow.initialIsHorizontal = arrow.points[0].type === "left" || arrow.points[0].type === "right";
+        arrow.initialIsHorizontal = arrowIsHorizontal(arrow);
 
         return {
           ...acc,
