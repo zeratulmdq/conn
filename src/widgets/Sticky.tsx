@@ -104,7 +104,7 @@ class Sticky extends React.Component<PropTypes> {
           }}
           id="left"
         ></div>
-        <svg className="auto-affordance">
+        {/* <svg className="auto-affordance">
         <circle
           cx={`${width / 2}`}
           cy={`${height / 2}`}
@@ -112,7 +112,7 @@ class Sticky extends React.Component<PropTypes> {
           stroke={'#1c7ff9'}
           fill='none'
           ></circle>
-          </svg>
+          </svg> */}
       </div>
     );
   }

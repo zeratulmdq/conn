@@ -1,267 +1,143 @@
 import React from "react";
 import "./Sticky.css";
 import "./Arrow.css";
-import { ArrowWidget, ChartBranch, Point } from "../types";
+import { ArrowWidget, PointType, Position } from "../types";
 
 type Direction = 'horizontal' | 'vertical' | 'other';
-
-const MIN_SEGMENT_DISTANCE = 10;
 
 interface PropTypes {
   widget: ArrowWidget;
   onDragPointStart: (id: string, e: React.MouseEvent, isStart: boolean) => void;
-  onDragSegmentEnd: (id: string, position?: number) => void;
+  onDragSegmentEnd: (id: string, index: number, position?: number) => void;
+  onDragSegment: (id: string, index: number, position: Position) => void;
+  onDragSegmentStart: (id: string, index: number, position: Position) => void;
 }
 
 interface State {
-  draggingMiddleSegment: boolean;
+  draggingSegment: boolean;
+  draggingSegmentNumber: number; // indicates which segment is being dragged
   position?: number;
 }
 
 class Arrow extends React.PureComponent<PropTypes, State> {
-  state: State = { draggingMiddleSegment: false };
+  state: State = { draggingSegment: false, draggingSegmentNumber: -1 };
 
   getPoints = () => {
     const { points } = this.props.widget;
     const start = points[0];
-    const end = points[1];
+    const end = points[points.length - 1];
 
     return { start, end }
   }
 
-  handleSegmentDragStart = () => {
-    if (this.state.draggingMiddleSegment) return;
-    this.setState({ draggingMiddleSegment: true})
+  handleSegmentDragStart = (e: React.MouseEvent, index: number) => {
+    if (this.state.draggingSegment) return;
+    this.props.onDragSegmentStart(this.props.widget.id, index, { x: e.clientX, y: e.clientY })
+    const normalizedIndex = index === 0
+      ? 1
+      : index;
+    this.setState({ draggingSegment: true, draggingSegmentNumber: normalizedIndex })
   }
 
   handleSegmentDragEnd = () => {
-    if (!this.state.draggingMiddleSegment) return;
-    // Create chart branch afeter dragging middle segment
+    if (!this.state.draggingSegment) return;
+    // Create chart branch after dragging middle segment
     const pos = this.state.position;
-    this.props.onDragSegmentEnd(this.props.widget.id, pos);
-    this.setState({ draggingMiddleSegment: false, position: undefined })
+    this.props.onDragSegmentEnd(this.props.widget.id, this.state.draggingSegmentNumber, pos);
+    this.setState({ draggingSegment: false, draggingSegmentNumber: -1, position: undefined })
   }
-
-  connectionDot = (x: number, y: number, key: string, isStart?: boolean) => {
-    const handleDragPointStart = (e: React.MouseEvent) => {
-      const { onDragPointStart, widget } = this.props;
-      onDragPointStart(widget.id, e, !!isStart);
-    }
-    return <circle
-      key={key}
-      cx={`${x}`}
-      cy={`${y}`}
-      r="5"
-      stroke={isStart ? 'black' : '#1c7ff9'}
-      fill={isStart ? 'white' : '#1c7ff9'}
-      onMouseDown={handleDragPointStart}
-      ></circle>
-  };
 
   handleMouseMove = ({ clientX, clientY }: React.MouseEvent<SVGSVGElement, MouseEvent>) => {
-    if(!this.state.draggingMiddleSegment) return;
-
-    const { start, end } = this.getPoints();
-
-    if (start.type === 'right' || start.type === 'left') {
-      const minX = Math.min(start.x, end.x);
-      const maxX = Math.max(start.x, end.x);
-      if (start.type === end.type) {
-        if (maxX < clientX - MIN_SEGMENT_DISTANCE || clientX + MIN_SEGMENT_DISTANCE < minX) {
-          this.setState({ position: clientX });
-          return;
-        }
-      }
-
-      const limitStart = minX < clientX - MIN_SEGMENT_DISTANCE;
-      const limitEnd = maxX > clientX + MIN_SEGMENT_DISTANCE;
-
-      if (limitStart && limitEnd && this.state.position !== clientX)
-        this.setState({ position: clientX })
-        return;
-    }
-
-    const minY = Math.min(start.y, end.y);
-    const maxY = Math.max(start.y, end.y);
-    if (start.type === end.type) {
-      if (maxY < clientY - MIN_SEGMENT_DISTANCE || clientY + MIN_SEGMENT_DISTANCE < maxY) {
-        this.setState({ position: clientY });
-        return;
-      }
-    }
-
-    const limitStart = minY < clientY - MIN_SEGMENT_DISTANCE;
-    const limitEnd = maxY > clientY + MIN_SEGMENT_DISTANCE;
-
-    if (limitStart && limitEnd && this.state.position !== clientY)
+    const { draggingSegmentNumber } = this.state;
+    if(!this.state.draggingSegment) return;
+    
+    const { start } = this.getPoints();
+    
+    if ((start.type === 'right' || start.type === 'left') && draggingSegmentNumber % 2 !== 0 ) {
+      this.setState({ position: clientX });
+    } else {
       this.setState({ position: clientY });
+    }
+    this.props.onDragSegment(this.props.widget.id, draggingSegmentNumber, { x: clientX, y: clientY });
   }
 
-  pathGenerator = (
-    points: Point[],
-    chartBranch: ChartBranch | null,
-    position: number | undefined,
-  ) => {
+  connectionDot = (x: number, y: number, key: string, direction?: PointType) => {
+    const handleDragPointStart = (e: React.MouseEvent) => {
+      const { onDragPointStart, widget } = this.props;
+      onDragPointStart(widget.id, e, !direction);
+    }
+    if (!direction) {
+      return <circle
+        key={key}
+        cx={`${x}`}
+        cy={`${y}`}
+        r="2"
+        stroke='transparent'
+        fill='black'
+        strokeWidth="6"
+        onMouseDown={handleDragPointStart}
+        ></circle>
+    } else {
+      return <path
+        key={key}
+        className='connectionDot'
+        stroke="#000"
+        fill="#000"
+        d={`M${x} ${y} L${x - 8} ${y + 3}V${y - 3}z`}
+        fillRule="evenodd"
+        style={{ transform: `rotate(${this.getRotation(direction)}deg)`, transformOrigin: `${x}px ${y}px` }}
+        onMouseDown={handleDragPointStart}
+      />;
+    }
+  };
+  getRotation = (dir: PointType) => {
+    switch (dir) {
+      case 'right': return 180;
+      case 'left': return 0;
+      case 'top': return 90;
+      case 'bottom': return -90;
+    }
+  }
+
+  pathGenerator = () => {
+    const { points } = this.props.widget;
+    if (points.length < 2) return null;
+    // const { position } = this.state;
     const start = points[0];
-    const end = points[1];
+    const end = points[points.length - 1];
+    const withConnectionDot = (arrowPath: JSX.Element[]) => [
+      this.connectionDot(start.x, start.y, '0'),
+      ...arrowPath,
+      this.connectionDot(end.x, end.y, '100', end.type),
+    ];
     const isHorizontalStart = start.type === "right" || start.type === "left";
-    const isHorizontalEnd = end.type === "right" || end.type === "left";
-    const midDistance = isHorizontalStart ? (end.x - start.x) / 2 : (end.y - start.y) / 2;
-
-    // 1-segment straight line
-    if((isHorizontalStart && start.y === end.y) ||
-      (!isHorizontalStart && start.x === end.x)) {
-        const d = `M ${start.x} ${start.y} L ${end.x} ${end.y}`;
-        return [
-          this.connectionDot(start.x, start.y, '0', true),
-          <path d={d} stroke="black" strokeWidth="2" fill="none" key="1" />,
-          this.connectionDot(end.x, end.y, '2'),
-        ];
-    }
-
-    if(isHorizontalStart !== isHorizontalEnd) {
-      const willCoverContent = isHorizontalStart
-      ? (end.type === "bottom" && end.y > start.y) || (end.type === "top" && end.y < start.y)
-      : (end.type === "right" && end.x > start.x) || (end.type === "left" && end.x < start.x);
-      // 2-segments line
-      if (!willCoverContent) {
-        const p1 = `${start.x} ${start.y}`;
-        const p2 = isHorizontalStart ? `${end.x} ${start.y}` : `${start.x} ${end.y}`;
-        const p3 = `${end.x} ${end.y}`;
-  
-        const d1 = `M ${p1} L ${p2}`;
-        const d2 = `M ${p2} L ${p3}`;
-        return [
-          this.connectionDot(start.x, start.y, '0', true),
-          <path d={d1} stroke="black" strokeWidth="2" fill="none" key="1" />,
-          <path d={d2} stroke="black" strokeWidth="2" fill="none" key="2" />,
-          this.connectionDot(end.x, end.y, '3'),
-        ];
-      // 4-segments line
-      } else {
-        const p1 = `${start.x} ${start.y}`;
-        const p2 = isHorizontalStart ? `${start.x + midDistance} ${start.y}` : ` ${start.x} ${start.y + midDistance}`;
-        const p5 = `${end.x} ${end.y}`;
-        let p3, p4;
-        if (end.type === "bottom" || end.type === "right") {
-          p3 = isHorizontalStart ? `${start.x + midDistance} ${end.y + 20}` : ` ${end.x + 20} ${start.y + midDistance}`;
-          p4 = isHorizontalStart ? `${end.x} ${end.y + 20}` : ` ${end.x + 20} ${end.y}`;
-        } else {
-          p3 = isHorizontalStart ? `${start.x + midDistance} ${end.y - 20}` : ` ${end.x - 20} ${start.y + midDistance}`;
-          p4 = isHorizontalStart ? `${end.x} ${end.y - 20}` : ` ${end.x - 20} ${end.y}`;
-        }
-
-        const d1 = `M ${p1} L ${p2}`;
-        const d2 = `M ${p2} L ${p3}`;
-        const d3 = `M ${p3} L ${p4}`;
-        const d4 = `M ${p4} L ${p5}`;
-        return [
-          this.connectionDot(start.x, start.y, '0', true),
-          <path d={d1} stroke="black" strokeWidth="2" fill="none" key="1" />,
-          <path
-            key="2"
-            d={d2}
-            stroke="black"
-            strokeWidth="2"
-            fill="none"
-          />,
-          <path d={d3} stroke="black" strokeWidth="2" fill="none" key="3" />,
-          <path d={d4} stroke="black" strokeWidth="2" fill="none" key="4" />,
-          this.connectionDot(end.x, end.y, '5'),
-        ];
-      }
-    }
-    const willCoverContent = isHorizontalStart
-      ? (end.type === "right" && end.x > start.x) || (end.type === "left" && end.x < start.x)
-      : (end.type === "bottom" && end.y > start.y) || (end.type === "top" && end.y < start.y);
-    // 3-segments line
-    const cursor = isHorizontalStart ? 'ew-resize' : 'ns-resize';
-    if (willCoverContent && !chartBranch) {
-      const p1 = `${start.x} ${start.y}`;
-      const p4 = `${end.x} ${end.y}`;
-      let p2, p3;
-      if (end.type === "bottom" || end.type === "right") {
-        p2 = isHorizontalStart ? `${end.x + 20} ${start.y}` : ` ${start.x} ${end.y + 20}`;
-        p3 = isHorizontalStart ? `${end.x + 20} ${end.y}` : ` ${end.x} ${end.y + 20}`;
-      } else {
-        p2 = isHorizontalStart ? `${end.x - 20} ${start.y}` : ` ${start.x} ${end.y - 20}`;
-        p3 = isHorizontalStart ? `${end.x - 20} ${end.y}` : ` ${end.x} ${end.y - 20}`;
-      }
-
-      const d1 = `M ${p1} L ${p2}`;
-      const d2 = `M ${p2} L ${p3}`;
-      const d3 = `M ${p3} L ${p4}`;
-
-      return [
-        this.connectionDot(start.x, start.y, '0', true),
-        <path d={d1} stroke="black" strokeWidth="2" fill="none" key="1" />,
-        <path
-          key="2"
-          d={d2}
-          stroke="black"
-          strokeWidth="2"
-          fill="none"
-          style={{
-            cursor,
-            pointerEvents: 'auto'
-          }}
-          onMouseDown={this.handleSegmentDragStart}
-        />,
-        <path d={d3} stroke="black" strokeWidth="2" fill="none" key="3" />,
-        this.connectionDot(end.x, end.y, '4'),
-      ];
-    }
-    let segment2Position = position
-      ? position
-      : isHorizontalStart
-      ? start.x + midDistance
-      : start.y + midDistance;
-
-    if(chartBranch)
-    {
-      const convergenceTarget = chartBranch.type === "manyToOne" ? end : start;
-      if(chartBranch.convergenceSide === convergenceTarget.type) {
-        segment2Position = position
-          ? position
-          : chartBranch.position;
-      }
-    }
-
-    const p1 = `${start.x} ${start.y}`;
-    const p2 = isHorizontalStart ? `${segment2Position} ${start.y}` : ` ${start.x} ${segment2Position}`;
-    const p3 = isHorizontalStart ? `${segment2Position} ${end.y}` : ` ${end.x} ${segment2Position}`;
-    const p4 = `${end.x} ${end.y}`;
-
-    const d1 = `M ${p1} L ${p2}`;
-    const d2 = `M ${p2} L ${p3}`;
-    const d3 = `M ${p3} L ${p4}`;
-
-    return [
-      this.connectionDot(start.x, start.y, '0', true),
-      <path d={d1} stroke="black" strokeWidth="2" fill="none" key="1" />,
-      <path
-        key="2"
-        d={d2}
+    const cursor = (index: number) => (isHorizontalStart && index % 2 !== 0) || (!isHorizontalStart && index % 2 === 0) ? 'ew-resize' : 'ns-resize'
+    const arrowPath: JSX.Element[] = [];
+    points.forEach((point, index) => {
+      const onDragStart = (e: React.MouseEvent) => this.handleSegmentDragStart(e, index);
+      const next = points[index + 1];
+      if (!next) return;
+      arrowPath.push(<path
+        key={index + 1} // 0 is the first circle
+        d={`M ${point.x} ${point.y} L ${next.x} ${next.y}`}
         stroke="black"
         strokeWidth="2"
         fill="none"
         style={{
-          cursor,
+          cursor: cursor(index),
           pointerEvents: 'auto'
         }}
-        onMouseDown={this.handleSegmentDragStart}
-      />,
-      <path d={d3} stroke="black" strokeWidth="2" fill="none" key="3" />,
-      this.connectionDot(end.x, end.y, '4'),
-    ];
+        onMouseDown={onDragStart}
+      />)
+    })
+    return withConnectionDot([
+      ...arrowPath,
+    ]);
   };
 
   render() {
-    const path = this.pathGenerator(
-      this.props.widget.points,
-      this.props.widget.chartBranch,
-      this.state.position,
-    );
+    const path = this.pathGenerator();
+    if (!path) return null;
 
     return (
       <svg
@@ -269,7 +145,7 @@ class Arrow extends React.PureComponent<PropTypes, State> {
           position: "absolute",
           top: 0,
           left: 0,
-          pointerEvents: this.state.draggingMiddleSegment ? "auto" : "none",
+          pointerEvents: this.state.draggingSegment ? "auto" : "none",
         }}
         xmlns="http://www.w3.org/2000/svg"
         version="1.1"

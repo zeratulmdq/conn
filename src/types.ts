@@ -15,7 +15,7 @@ export type ChartBranchType = "oneToOne" | "oneToMany" | "manyToOne";
 export interface Point {
   x: number;
   y: number;
-  type: PointType;
+  type?: PointType; // only first and last points have type
 }
 
 export interface Position {
@@ -25,7 +25,7 @@ export interface Position {
 
 export interface ChartBranch {
   position: number; // fixed position where arrows share the 2nd branch segment
-  convergenceSide: PointType;  // side of the widget where the arrows converge (might be start or end widget depending of ChartBranchType)
+  convergenceSide?: PointType;  // side of the widget where the arrows converge (might be start or end widget depending of ChartBranchType)
   type: ChartBranchType;
 }
 
@@ -39,8 +39,8 @@ export type ArrowWidget = W & {
   type: "arrow";
   points: Point[];
   start: string | null;
-  startPoint?: PointType | null;
-  endPoint?: PointType | null;
+  startPoint?: PointType | null; // when start point is manually set
+  endPoint?: PointType | null; // when end point is manually set
   end: string | null;
   arrowType: ArrowType;
   chartBranch: ChartBranch | null;

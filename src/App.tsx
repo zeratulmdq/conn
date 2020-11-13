@@ -16,6 +16,7 @@ import {
   PointType,
 } from "./types";
 
+export const SNAPPING_DISTANCE = 10;
 export const TOLERANCE = 10;
 export const ARROW_MARGIN = 10;
 export const TWO_SEGMENT_ARROW_MIN = 20;
@@ -44,6 +45,7 @@ interface State {
   endId: string | null;
   selected: string[] | null;
   widgets: Record<string, Widget>;
+  newSegment: boolean;
 }
 
 class App extends React.Component<{}, State> {
@@ -59,6 +61,7 @@ class App extends React.Component<{}, State> {
     endId: null,
     selected: null,
     widgets: {},
+    newSegment: false,
   };
   mousePosition: Position | null = null;
   mouseOverSticky: boolean = false;
@@ -141,15 +144,11 @@ class App extends React.Component<{}, State> {
       return;
     // start arrow creation
     if (!this.state.dragging) {
-      const mousePosition: Position = {x: e.clientX, y: e.clientY };
-
       // create Arrow for dragging without end widget
       this.setState((prevState) => {
         const arrow = {
           ...arrowFactory({ start: id, end: null }),
         };
-
-        this.updateArrow(arrow, mousePosition);
 
         return {
           ...prevState,
@@ -339,6 +338,15 @@ class App extends React.Component<{}, State> {
     };
   }
 
+  opositePoint = (point: PointType) => {
+    switch (point) {
+      case 'top': return 'bottom';
+      case 'bottom': return 'top';
+      case 'right': return 'left';
+      case 'left': return 'right';
+    }
+  }
+
   handleMouseLeaveSticky = (id: string, e: React.MouseEvent<HTMLDivElement>) => {
     this.mouseOverSticky = false;
     const { dragging, widgets } = this.state;
@@ -366,12 +374,25 @@ class App extends React.Component<{}, State> {
     if (draggingWidgets.length === 1 && draggingWidgets[0].type === "arrow" && ((draggingWidgets[0].start === id && !draggingWidgets[0].end) || (draggingWidgets[0].end === id && !draggingWidgets[0].start))) {
       const draggingArrow = { ...draggingWidgets[0] };
       const widget = this.state.widgets[id];
-      const isHorizontalStart = e.clientY > widget.y && e.clientY < widget.y + widget.height;
+      const x = e.clientX;
+      const y = e.clientY;
+      const isHorizontalStart = y > widget.y && y < widget.y + widget.height;
+      const startPoint = isHorizontalStart
+        ? x <= widget.x
+          ? 'left'
+          : 'right'
+        : y <= widget.y
+          ? 'top'
+          : 'bottom';
+      const endPoint = this.opositePoint(startPoint);
+
+      // set initial points
       this.setState({
         widgets: {
           ...widgets,
           [draggingArrow.id]: {
             ...draggingArrow,
+            points: [{ x, y, type: startPoint }, { x, y, type: endPoint }],
             initialIsHorizontal: isHorizontalStart,
           },
         },
@@ -480,7 +501,7 @@ class App extends React.Component<{}, State> {
         const stickyWidth = (e.ctrlKey || e.metaKey) ? 150 : 100;
         const draggingWidgets = this.state.dragging && this.state.dragging.map(id => this.state.widgets[id]);
         const draggingArrow = draggingWidgets && { ...draggingWidgets[0] as ArrowWidget };
-        const draggingPoint = draggingArrow && draggingArrow.points[1];
+        const draggingPoint = draggingArrow && draggingArrow.points[draggingArrow.points.length - 1];
         if (!draggingPoint || !draggingArrow) return;
         const pos = this.getConnectedStickyPos(draggingPoint, stickyWidth);
         const s = stickyFactory({ ...pos, width: stickyWidth });
@@ -563,16 +584,138 @@ class App extends React.Component<{}, State> {
     }
   }
 
-  handleDragSegmentEnd = (arrowId: string, position?: number) => {
-    const arrow = this.state.widgets[arrowId];
-    this.setArrowChartBranch(arrow as ArrowWidget, this.state.widgets, false, position);
+  getStartPointType = (points: Point[]) => {
+    if (points.length < 2) return undefined;
+    const first = points[0];
+    const second = points[1];
+    if (first.x < second.x) return 'right';
+    if (first.x > second.x) return 'left';
+    if (first.y < second.y) return 'bottom';
+    return 'top';
+  }
+
+  getEndPointType = (points: Point[]) => {
+    const reverse = [...points].reverse();
+    return this.getStartPointType(reverse);
+  }
+
+  handleDragSementStart = (arrowId: string, index: number, pos: Position) => {
+    const arrow = this.state.widgets[arrowId] as ArrowWidget;
+    const horizontalDrag = arrowIsHorizontal(arrow)
+      ? index % 2 !== 0
+      : index % 2 === 0;
+    const isFirst = index === 0;
+    const isLast = index === arrow.points.length - 2;
+    // if it's the first or last segment, create a new node
+    if (index === 0 || index === arrow.points.length - 2) {
+
+      if (isFirst && isLast) {
+        const first = arrow.points[0];
+        const last = arrow.points[1];
+        if (horizontalDrag) {
+          const second = { x: pos.x, y: first.y };
+          const third = { x: pos.x, y: last.y };
+          arrow.points = [{ ...first, type: 'right' }, second, third, { ...last, type: 'right' }];
+          // arrow.startPoint = 'right';
+          // arrow.endPoint = 'right';
+        } else {
+          const second = { x: first.x, y: pos.y };
+          const third = { x: last.x, y: pos.y };
+          arrow.points = [{ ...first, type: 'top' }, second, third, { ...last, type: 'top' }];
+          // arrow.startPoint = 'top';
+          // arrow.endPoint = 'top';
+        }
+      } else if (isFirst) {
+        const unalteredEndPoints = arrow.points.slice(2);
+        const first = arrow.points[0];
+        if (horizontalDrag) {
+          const second = { x: pos.x, y: first.y };
+          const third = { x: pos.x, y: arrow.points[1].y };
+          arrow.points = [{ ...first, type: 'right' }, second, third, ...unalteredEndPoints];
+          // arrow.startPoint = 'right';
+        } else {
+          const second = { x: first.x, y: pos.y };
+          const third = { x: arrow.points[1].x, y: pos.y };
+          arrow.points = [{ ...first, type: 'top' }, second, third, ...unalteredEndPoints];
+          // arrow.startPoint = 'top';
+        }
+      } else if (isLast) {
+        const unalteredPoints = arrow.points.slice(0, arrow.points.length - 2);
+        const last = arrow.points[arrow.points.length - 1];
+        if (last.type === 'right' || last.type === 'left') {
+          const second = { x: last.x, y: pos.y };
+          const third = { x: arrow.points[arrow.points.length - 2].x, y: pos.y };
+          arrow.points = [...unalteredPoints, third, second, { ...last, type: 'top' }];
+          // arrow.endPoint = 'top';
+        } else {
+          const second = { x: pos.x, y: last.y };
+          const third = { x: pos.x, y: arrow.points[arrow.points.length - 2].y };
+          arrow.points = [...unalteredPoints, third, second, { ...last, type: 'right' }];
+          // arrow.endPoint = 'right';
+        }
+      }
+      this.setState({ widgets: { ...this.state.widgets, [arrowId]: arrow}, newSegment: isFirst || isLast });
+    }
+  }
+
+  handleDragSegment = (arrowId: string, index: number, pos: Position) => {
+    const arrow = this.state.widgets[arrowId] as ArrowWidget;
+    const horizontalDrag = arrowIsHorizontal(arrow)
+      ? index % 2 !== 0
+      : index % 2 === 0;
+    // if it's the first or last segment, create a new node
+    if (index === 0 || index === arrow.points.length - 1) {
+      return;
+    } else {
+      if (horizontalDrag) {
+        arrow.points[index].x = pos.x;
+        arrow.points[index + 1].x = pos.x;
+      } else {
+        arrow.points[index].y = pos.y;
+        arrow.points[index + 1].y = pos.y;
+      }
+    }
+    this.setState({ widgets: { ...this.state.widgets, [arrowId]: arrow} });
+  }
+
+  handleDragSegmentEnd = (arrowId: string, index: number, position?: number) => {
+    const arrow = this.state.widgets[arrowId] as ArrowWidget;
+    const { points } = arrow;
+    const horizontalDrag = arrowIsHorizontal(arrow)
+      ? index % 2 !== 0
+      : index % 2 === 0;
+    // merge segments if they are in the same axis
+    if (horizontalDrag) {
+      if (arrow.points[index].x === arrow.points[index - 1].x) {
+        arrow.points.splice(index, 2);
+      } else if (arrow.points[index + 1].x === arrow.points[index + 2].x) {
+        arrow.points.splice(index + 1, 2);
+      }
+    } else {
+      if (arrow.points[index].y === arrow.points[index - 1].y) {
+        arrow.points.splice(index, 2);
+      } else if (arrow.points[index + 1].y === arrow.points[index + 2].y) {
+        arrow.points.splice(index + 1, 2);
+      }
+    }
+    const startType = this.getStartPointType(points);
+    const endType = this.getEndPointType(points);
+    arrow.points[0].type = startType;
+    arrow.points[points.length - 1].type = endType;
+    if (index === 1) this.setArrowChartBranch(arrow, this.state.widgets, false, position);
+    if (this.state.newSegment) {
+      arrow.startPoint = startType;
+      arrow.endPoint = endType;
+      this.updateArrow(arrow);
+    }
+    this.setState({ widgets: { ...this.state.widgets, [arrowId]: arrow}, newSegment: false });
   }
 
   // finds if this arrow should be a part of a branchChart
   setArrowChartBranch(arrow: ArrowWidget, widgets: Record<string, Widget>, dragging: boolean, position?: number) {
     if(!this.state.settings.stickToConvergentWidgetSide && arrow.chartBranch) {
       // don't recalculate if chartBranchSide and position didn't change
-      let convergencePoint = arrow.chartBranch.type === "manyToOne" ? arrow.points[1] : arrow.points[0];
+      let convergencePoint = arrow.chartBranch.type === "manyToOne" ? arrow.points[arrow.points.length - 1] : arrow.points[0];
       if(convergencePoint.type === arrow.chartBranch.convergenceSide && (!position || arrow.chartBranch.position === position)) {
         console.log('not recalculating chart branch');
         return;
@@ -582,7 +725,8 @@ class App extends React.Component<{}, State> {
     const chartBranchArrow = this.getSharedChartBranchArrow(arrow, widgets);
     // don't force chartBranching while dragging on an empty side of the origin/end widget
     // or if arrow has explicitly set start or end point
-    if((dragging && !chartBranchArrow)) {
+    if((dragging && !chartBranchArrow) || arrow.points.length === 2) {
+      arrow.arrowType = 'initial';
       arrow.chartBranch = null;
       console.log('setting chart branch null');
       return;
@@ -600,7 +744,7 @@ class App extends React.Component<{}, State> {
           chartBranchArrow.chartBranch.convergenceSide = arrow.points[0].type;
         } else {
           chartBranchArrow.chartBranch.type = "manyToOne";
-          chartBranchArrow.chartBranch.convergenceSide = arrow.points[1].type;
+          chartBranchArrow.chartBranch.convergenceSide = arrow.points[arrow.points.length - 1].type;
         }
       }
       arrow.chartBranch = Object.assign({}, chartBranchArrow.chartBranch);
@@ -616,10 +760,10 @@ class App extends React.Component<{}, State> {
       // unless explicit position is passed as parameter
       if (!position) {
         console.log('convergenceSide: ', chartBranch.convergenceSide);
-        if(toOrientation(chartBranch.convergenceSide) === "horizontal") {
-          chartBranch.position = arrow.points[0].x + ((arrow.points[1].x - arrow.points[0].x) / 2);
+        if(toOrientation(chartBranch.convergenceSide || 'right') === "horizontal") {
+          chartBranch.position = arrow.points[0].x + ((arrow.points[arrow.points.length - 1].x - arrow.points[0].x) / 2);
         } else {
-          chartBranch.position = arrow.points[0].y + ((arrow.points[1].y - arrow.points[0].y) / 2);
+          chartBranch.position = arrow.points[0].y + ((arrow.points[arrow.points.length - 1].y - arrow.points[0].y) / 2);
         }
       }
       arrow.chartBranch = chartBranch;
@@ -636,7 +780,7 @@ class App extends React.Component<{}, State> {
       w.arrowType === "chartBranch" &&
       w.chartBranch &&
       ((w.start === arrow.start && w.points[0].type === arrow.points[0].type) ||
-       (w.end === arrow.end && w.points[1].type === arrow.points[1].type))
+       (w.end === arrow.end && w.points[w.points.length - 1].type === arrow.points[arrow.points.length - 1].type))
     ).map(w => w as ArrowWidget);
     
     return chartBranchArrows.length > 0 ? chartBranchArrows[0] : null;
@@ -654,42 +798,90 @@ class App extends React.Component<{}, State> {
 
     const connectedWidget = startWidget ? startWidget : endWidget;
     if (!connectedWidget) return;
-    // initial dummy values
-    let points: Point[] = [{type: "right", x: 0, y: 0}, {type: "left", x: 1, y: 0}];
-    
-    if(arrow.points.length === 2) {
-      points = arrow.points;
-    }
+
+    const points = [...arrow.points];
+
     // stick to your branch side
     if(!this.state.settings.stickToConvergentWidgetSide || arrow.arrowType !== "chartBranch") {
       // change connections depending on positioning
       const draggingX = draggingPosition ? draggingPosition.x : endWidget.x;
       const draggingY = draggingPosition ? draggingPosition.y : endWidget.y;
       const draggingWidth = draggingPosition ? 0 : endWidget.width;
-      if (connectedWidget.x + connectedWidget.width + TOLERANCE < draggingX) {
-        points[0].type = arrow.startPoint || (startWidget ? "right" : "left");
-        points[1].type = arrow.endPoint || (startWidget ? "left" : "right");
-      } else if (draggingX + draggingWidth + TOLERANCE < connectedWidget.x) {
-        points[0].type = arrow.startPoint || (startWidget ? "left" : "right");
-        points[1].type = arrow.endPoint || (startWidget ? "right" : "left");
-      } else if (draggingY > connectedWidget.y + connectedWidget.height + TOLERANCE) {
-        points[0].type = arrow.startPoint || (startWidget ? "bottom" : "top");
-        points[1].type = arrow.endPoint || (startWidget ? "top" : "bottom");
-      } else {
-        points[0].type = arrow.startPoint || (startWidget ? "top" : "bottom");
-        points[1].type = arrow.endPoint || (startWidget ? "bottom" : "top");
+      const draggingHeight = draggingPosition ? 0 : endWidget.height;
+      if (points.length < 5) {
+        if (arrow.initialIsHorizontal) {
+          if (connectedWidget.x + connectedWidget.width + TOLERANCE < draggingX) {
+            points[0].type = startWidget ? "right" : "left";
+            points[points.length - 1].type = startWidget ? "left" : "right";
+          } else if (draggingX + draggingWidth + TOLERANCE < connectedWidget.x) {
+            points[0].type = startWidget ? "left" : "right";
+            points[points.length - 1].type = startWidget ? "right" : "left";
+          } else if (draggingY > connectedWidget.y + connectedWidget.height) {
+            points[0].type = startWidget ? "bottom" : "top";
+            points[points.length - 1].type = startWidget ? "top" : "bottom";
+          } else {
+            points[0].type = startWidget ? "top" : "bottom";
+            points[points.length - 1].type = startWidget ? "bottom" : "top";
+          }
+        } else {
+          if (connectedWidget.y + connectedWidget.height + TOLERANCE < draggingY) {
+            points[0].type = startWidget ? "bottom" : "top";
+            points[points.length - 1].type = startWidget ? "top" : "bottom";
+          } else if (draggingY + draggingHeight + TOLERANCE < connectedWidget.y) {
+            points[0].type = startWidget ? "top" : "bottom";
+            points[points.length - 1].type = startWidget ? "bottom" : "top";
+          } else if (draggingX > connectedWidget.x + connectedWidget.width) {
+            points[0].type = startWidget ? "right" : "left";
+            points[points.length - 1].type = startWidget ? "left" : "right";
+          } else {
+            points[0].type = startWidget ? "left" : "right";
+            points[points.length - 1].type = startWidget ? "right" : "left";
+          }
+        }
+        // it the connector starts / ends where it should automatically,
+        // don't force startPoint / endPoint any more
+        if (arrow.startPoint) {
+          if (arrow.startPoint === points[0].type) {
+            arrow.startPoint = null;
+          } else {
+            points[0].type = arrow.startPoint;
+          }
+        }
+        if (arrow.endPoint) {
+          if (arrow.endPoint === points[points.length - 1].type) {
+            arrow.endPoint = null;
+          } else {
+            points[points.length - 1].type = arrow.endPoint;
+          }
+        }
       }
 
+
       points[0] = startWidget ? this.getWidgetSideMidPosition(points[0], startWidget) : {...points[0], x: (draggingPosition as Position).x, y: (draggingPosition as Position).y};
-      points[1] = endWidget ? this.getWidgetSideMidPosition(points[1], endWidget) : {...points[1], x: (draggingPosition as Position).x, y: (draggingPosition as Position).y};
+      points[points.length - 1] = endWidget ? this.getWidgetSideMidPosition(points[points.length - 1], endWidget) : {...points[points.length - 1], x: (draggingPosition as Position).x, y: (draggingPosition as Position).y};
       arrow.points = points;
       
       // check if being a chartSide arrow
-      if(this.isChartSideArrow(arrow, widgets)) {
+      if(this.isChartSideArrow(arrow, widgets) && points.length < 5) {
+        console.log('IS CHART SIDE ARROW');
         if (isDisconnectedArrow) {
           this.updateArrowChartSide(arrow, connectedWidget, endWidget, draggingPosition, !!endWidget);
         } else {
           this.updateArrowChartSide(arrow, startWidget, endWidget);
+        }
+      }
+
+      // snap the two points while creating an arrow
+      if (isDisconnectedArrow && arrow.points.length < 5) {
+        const points = arrow.points;
+        if (points[0].type === 'left' || points[0].type === 'right') {
+          if (points[points.length - 1].y <= points[0].y + SNAPPING_DISTANCE && points[points.length - 1].y >= points[0].y - SNAPPING_DISTANCE) {
+            points[points.length - 1].y = points[0].y;
+          }
+        } else if (points[0].type === 'top' || points[0].type === 'bottom') {
+          if (points[points.length - 1].x <= points[0].x + SNAPPING_DISTANCE && points[points.length - 1].x >= points[0].x - SNAPPING_DISTANCE) {
+            points[points.length - 1].x = points[0].x;
+          }
         }
       }
       
@@ -699,18 +891,18 @@ class App extends React.Component<{}, State> {
     
     // update chartBranch arrows
     // this is mainly used for a branched arrow whose widget is "behind" the branch fixed position 
-    if(arrow.chartBranch && startWidget && endWidget) {
+    if(arrow.chartBranch && startWidget && endWidget && points.length < 5) {
       // on "oneOnOne" we consider the start widget as the convergent one
       const convergesOnEnd = arrow.chartBranch.type === "manyToOne"; 
-      let convergencePoint = convergesOnEnd ? arrow.points[1] : arrow.points[0];
-      let nonConvergencePoint = convergesOnEnd ? arrow.points[0] : arrow.points[1];
+      let convergencePoint = convergesOnEnd ? arrow.points[arrow.points.length - 1] : arrow.points[0];
+      let nonConvergencePoint = convergesOnEnd ? arrow.points[0] : arrow.points[arrow.points.length - 1];
       const convergentWidget = convergesOnEnd ? endWidget : startWidget;
       const nonConvergentWidget = convergesOnEnd ? startWidget : endWidget;
       
       convergencePoint = this.getWidgetSideMidPosition(convergencePoint, convergentWidget);
       nonConvergencePoint = this.getWidgetSideMidPosition(nonConvergencePoint, nonConvergentWidget);
     
-      if(toOrientation(arrow.chartBranch.convergenceSide) === "horizontal") {
+      if(toOrientation(arrow.chartBranch.convergenceSide || 'right') === "horizontal") {
         // if inside, use 2-segment arrow
         if(arrow.chartBranch.position >= nonConvergentWidget.x && arrow.chartBranch.position <= nonConvergentWidget.x + nonConvergentWidget.width) {
           nonConvergencePoint.x = arrow.chartBranch.position;
@@ -733,8 +925,119 @@ class App extends React.Component<{}, State> {
       }
 
       arrow.points[0] = convergesOnEnd ? nonConvergencePoint : convergencePoint;
-      arrow.points[1] = convergesOnEnd ? convergencePoint : nonConvergencePoint;
+      arrow.points[arrow.points.length - 1] = convergesOnEnd ? convergencePoint : nonConvergencePoint;
     }
+    this.setIntermidiatePoints(arrow);
+  }
+
+  setIntermidiatePoints = (arrow: ArrowWidget) => {
+    const { points } = arrow;
+    const start = points[0];
+    const end = points[points.length - 1];
+    const isHorizontalStart = start.type === "right" || start.type === "left";
+    const isHorizontalEnd = end.type === "right" || end.type === "left";
+    const midDistance = isHorizontalStart ? (end.x - start.x) / 2 : (end.y - start.y) / 2;
+    // 1-segment straight line
+    if((isHorizontalStart && start.y === end.y) || (!isHorizontalStart && start.x === end.x)) {
+      if (points.length < 5) {
+        arrow.points = [start, end];
+        arrow.arrowType = 'initial';
+        arrow.chartBranch = null;
+        return;
+      }
+    }
+    let p2, p3, p4;
+    // 2-segments line
+    if (isHorizontalStart !== isHorizontalEnd && points.length < 5) {
+      const willCoverContent = isHorizontalStart
+        ? (end.type === "bottom" && end.y > start.y) || (end.type === "top" && end.y < start.y)
+        : (end.type === "right" && end.x > start.x) || (end.type === "left" && end.x < start.x);
+      if (!willCoverContent) {
+        const middlePoint = isHorizontalStart
+          ? { x: end.x, y: start.y }
+          : { x: start.x, y: end.y };
+        arrow.points = [start, middlePoint, end];
+        return;
+      } else { // 4-segments line
+        p2 = isHorizontalStart
+        ? { x: start.x + midDistance, y: start.y }
+        : { x: start.x, y: start.y + midDistance };
+      if (end.type === "bottom" || end.type === "right") {
+        p3 = isHorizontalStart
+          ? { x: start.x + midDistance, y: end.y + 20 }
+          : { x: end.x + 20, y: start.y + midDistance };
+        p4 = isHorizontalStart
+          ? { x: end.x, y: end.y + 20 }
+          : { x: end.x + 20, y: end.y };
+      } else {
+        p3 = isHorizontalStart
+          ? { x: start.x + midDistance, y: end.y - 20 }
+          : { x: end.x - 20, y: start.y + midDistance };
+        p4 = isHorizontalStart
+          ? { x: end.x, y: end.y - 20 }
+          : { x: end.x - 20, y: end.y };
+      }
+      arrow.points = [start, p2, p3, p4, end];
+      return;
+      }
+    }
+    // 4+ segments line
+    if (points.length >= 5) {
+      p2 = isHorizontalStart
+        ? { x: points[1].x, y: start.y }
+        : { x: start.x, y: points[1].y };
+      p4 = isHorizontalEnd
+        ? { x: points[points.length - 2].x, y: end.y }
+        : { x: end.x, y: points[points.length - 2].y };
+      const unalteredPoints = points.slice(2, points.length - 2);
+      arrow.points = [start, p2, ...unalteredPoints, p4, end];
+      return;
+    }
+    // const willCoverContent = isHorizontalStart
+    //   ? (end.type === "right" && end.x > start.x) || (end.type === "left" && end.x < start.x)
+    //   : (end.type === "bottom" && end.y > start.y) || (end.type === "top" && end.y < start.y);
+    //   // 3-segments line
+    //   if (willCoverContent && !arrow.chartBranch && points.length < 5) {
+    //     if (end.type === "bottom" || end.type === "right") {
+    //       p2 = isHorizontalStart
+    //         ? {x: end.x + 20, y: start.y}
+    //         : {x: start.x, y: end.y + 20};
+    //       p3 = isHorizontalStart
+    //         ? {x: end.x + 20, y: end.y}
+    //         : {x: end.x, y: end.y + 20};
+    //     } else {
+    //       p2 = isHorizontalStart
+    //         ? {x: end.x - 20, y: start.y}
+    //         :  {x: start.x, y: end.y - 20};
+    //       p3 = isHorizontalStart
+    //         ? {x: end.x - 20, y: end.y}
+    //         :  {x: end.x, y: end.y - 20};
+    //     }
+    //     arrow.points = [start, p2, p3, end];
+    //     return;
+    //   }
+
+    // 3 segments line
+    let segment2Position = isHorizontalStart
+      ? start.x + midDistance
+      : start.y + midDistance;
+
+    if(arrow.chartBranch) {
+      const convergenceTarget = arrow.chartBranch.type === "manyToOne" ? end : start;
+      if(arrow.chartBranch.convergenceSide === convergenceTarget.type) {
+        segment2Position = arrow.chartBranch.position;
+      }
+    }
+
+    p2 = isHorizontalStart
+      ? { x: segment2Position, y: start.y}
+      : { x: start.x, y: segment2Position};
+    p3 = isHorizontalStart
+      ? { x: segment2Position, y: end.y}
+      : { x: end.x, y: segment2Position};
+
+    arrow.points = [start, p2, p3, end];
+    return;
   }
   
   isChartSideArrow(arrow: ArrowWidget, widgets: Record<string, Widget>) {
@@ -742,29 +1045,31 @@ class App extends React.Component<{}, State> {
     if(this.getSharedChartBranchArrow(arrow, widgets)) return false;
     // can't be chartSide if their point were intentionally positioned
     if (arrow.startPoint || arrow.endPoint) return false;
+    console.log('initialIsHorizontal: ', arrow.initialIsHorizontal);
     return ((arrow.initialIsHorizontal && (arrow.points[0].type === "top" || arrow.points[0].type === "bottom")) ||
     (!arrow.initialIsHorizontal && (arrow.points[0].type === "left" || arrow.points[0].type === "right")));
   }
 
   // returns true if using intersection chartSide
   updateArrowChartSide(arrow: ArrowWidget, startWidget: Widget, endWidget: Widget, draggingPosition?: Position, isStart?: boolean) {
+    if (arrow.points.length >= 5) return;
     const draggingX = draggingPosition ? draggingPosition.x : endWidget.x;
     const draggingY = draggingPosition ? draggingPosition.y : endWidget.y;
     const draggingWidth = draggingPosition ? 0 : endWidget.width;
     const draggingHeight = draggingPosition ? 0 : endWidget.height;
     // if widgets limits are intersecting, use chartSide connector
     if(arrow.initialIsHorizontal) {
+      console.log('CASE 1');
       const middleX = this.getIntersectionMiddle(startWidget.x, startWidget.width, draggingX, draggingWidth);
       if(middleX) {
-        arrow.points[0].x = middleX;
-        arrow.points[1].x = middleX;
+        arrow.points = [{ ...arrow.points[0], x: middleX }, {...arrow.points[arrow.points.length - 1], x: middleX }]
         return true;
       }
     } else {
+      console.log('CASE 2');
       const middleY = this.getIntersectionMiddle(startWidget.y, startWidget.height, draggingY, draggingHeight);
       if(middleY) {
-        arrow.points[0].y = middleY;
-        arrow.points[1].y = middleY;
+        arrow.points = [{ ...arrow.points[0], y: middleY }, {...arrow.points[arrow.points.length - 1], y: middleY }]
         return true;
       }
     }
@@ -772,11 +1077,11 @@ class App extends React.Component<{}, State> {
     // if there is no intersection, use original axis side
     if (isStart && draggingPosition) {
       if(arrow.initialIsHorizontal) {
-        arrow.points[1].type = draggingX > startWidget.x + (startWidget.width / 2) ? "right" : "left";
+        arrow.points[arrow.points.length - 1].type = draggingX > startWidget.x + (startWidget.width / 2) ? "right" : "left";
       } else {
-        arrow.points[1].type = draggingY > startWidget.y + (startWidget.height / 2) ? "bottom" : "top";
+        arrow.points[arrow.points.length - 1].type = draggingY > startWidget.y + (startWidget.height / 2) ? "bottom" : "top";
       }
-      arrow.points[1] = this.getWidgetSideMidPosition(arrow.points[1], startWidget);
+      arrow.points[arrow.points.length - 1] = this.getWidgetSideMidPosition(arrow.points[arrow.points.length - 1], startWidget);
     } else {
       if(arrow.initialIsHorizontal) {
         arrow.points[0].type = draggingX > startWidget.x + (startWidget.width / 2) ? "right" : "left";
@@ -797,45 +1102,45 @@ class App extends React.Component<{}, State> {
       // never closer than 20px from origin and never less than 10px from target side
       if (isStart) {
         if(arrow.initialIsHorizontal) {
-          arrow.points[0].type = draggingY > arrow.points[1].y ? "top" : "bottom";
+          arrow.points[0].type = draggingY > arrow.points[arrow.points.length - 1].y ? "top" : "bottom";
           let distXToCenter = startWidget.width/2 + Math.max(distX + ARROW_MARGIN, TWO_SEGMENT_ARROW_MIN);
-          arrow.points[0].x = startWidgetCenter.x + (arrow.points[1].type === "right" ? distXToCenter : -distXToCenter);
+          arrow.points[0].x = startWidgetCenter.x + (arrow.points[arrow.points.length - 1].type === "right" ? distXToCenter : -distXToCenter);
           arrow.points[0].y = arrow.points[0].type === "top" ? draggingY : draggingY + draggingHeight;
         } else {
-          arrow.points[0].type = draggingX > arrow.points[1].x ? "left" : "right";
+          arrow.points[0].type = draggingX > arrow.points[arrow.points.length - 1].x ? "left" : "right";
           let distYToCenter = startWidget.height/2 + Math.max(distY + ARROW_MARGIN, TWO_SEGMENT_ARROW_MIN);
-          arrow.points[0].x = arrow.points[1].type === "left" ? draggingX : draggingX + draggingWidth;
-          arrow.points[0].y = startWidgetCenter.y + (arrow.points[1].type === "bottom" ? distYToCenter : -distYToCenter);
+          arrow.points[0].x = arrow.points[arrow.points.length - 1].type === "left" ? draggingX : draggingX + draggingWidth;
+          arrow.points[0].y = startWidgetCenter.y + (arrow.points[arrow.points.length - 1].type === "bottom" ? distYToCenter : -distYToCenter);
         }
       } else {
         if(arrow.initialIsHorizontal) {
-          arrow.points[1].type = draggingY > arrow.points[0].y ? "top" : "bottom";
+          arrow.points[arrow.points.length - 1].type = draggingY > arrow.points[0].y ? "top" : "bottom";
           let distXToCenter = startWidget.width/2 + Math.max(distX + ARROW_MARGIN, TWO_SEGMENT_ARROW_MIN);
-          arrow.points[1].x = startWidgetCenter.x + (arrow.points[0].type === "right" ? distXToCenter : -distXToCenter);
-          arrow.points[1].y = arrow.points[1].type === "top" ? draggingY : draggingY + draggingHeight;
+          arrow.points[arrow.points.length - 1].x = startWidgetCenter.x + (arrow.points[0].type === "right" ? distXToCenter : -distXToCenter);
+          arrow.points[arrow.points.length - 1].y = arrow.points[arrow.points.length - 1].type === "top" ? draggingY : draggingY + draggingHeight;
         } else {
-          arrow.points[1].type = draggingX > arrow.points[0].x ? "left" : "right";
+          arrow.points[arrow.points.length - 1].type = draggingX > arrow.points[0].x ? "left" : "right";
           let distYToCenter = startWidget.height/2 + Math.max(distY + ARROW_MARGIN, TWO_SEGMENT_ARROW_MIN);
-          arrow.points[1].x = arrow.points[1].type === "left" ? draggingX : draggingX + draggingWidth;
-          arrow.points[1].y = startWidgetCenter.y + (arrow.points[0].type === "bottom" ? distYToCenter : -distYToCenter);
+          arrow.points[arrow.points.length - 1].x = arrow.points[arrow.points.length - 1].type === "left" ? draggingX : draggingX + draggingWidth;
+          arrow.points[arrow.points.length - 1].y = startWidgetCenter.y + (arrow.points[0].type === "bottom" ? distYToCenter : -distYToCenter);
         }
       }
     // otherwise use regular 3-segments arrow
     } else {
       if (isStart) {
         if(arrow.initialIsHorizontal) {
-          arrow.points[0].type = arrow.points[1].type === "right" ? "left" : "right";
+          arrow.points[0].type = arrow.points[arrow.points.length - 1].type === "right" ? "left" : "right";
         } else {
-          arrow.points[0].type = arrow.points[1].type === "bottom" ? "top" : "bottom";
+          arrow.points[0].type = arrow.points[arrow.points.length - 1].type === "bottom" ? "top" : "bottom";
         }
         arrow.points[0] = draggingPosition ? {...arrow.points[0], x: draggingPosition.x, y: draggingPosition.y} : this.getWidgetSideMidPosition(arrow.points[0], endWidget);
       } else {
         if(arrow.initialIsHorizontal) {
-            arrow.points[1].type = arrow.points[0].type === "right" ? "left" : "right";
+            arrow.points[arrow.points.length - 1].type = arrow.points[0].type === "right" ? "left" : "right";
         } else {
-          arrow.points[1].type = arrow.points[0].type === "bottom" ? "top" : "bottom";
+          arrow.points[arrow.points.length - 1].type = arrow.points[0].type === "bottom" ? "top" : "bottom";
         }
-        arrow.points[1] = draggingPosition ? {...arrow.points[1], x: draggingPosition.x, y: draggingPosition.y} : this.getWidgetSideMidPosition(arrow.points[1], endWidget);
+        arrow.points[arrow.points.length - 1] = draggingPosition ? {...arrow.points[arrow.points.length - 1], x: draggingPosition.x, y: draggingPosition.y} : this.getWidgetSideMidPosition(arrow.points[arrow.points.length - 1], endWidget);
       }
     }
 
@@ -935,6 +1240,8 @@ class App extends React.Component<{}, State> {
                 widget={w} key={w.id}
                 onDragPointStart={this.handleArrowPointDragStart}
                 onDragSegmentEnd={this.handleDragSegmentEnd}
+                onDragSegment={this.handleDragSegment}
+                onDragSegmentStart={this.handleDragSementStart}
               />;
             }
             

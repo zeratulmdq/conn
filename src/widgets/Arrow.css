@@ -1,3 +1,7 @@
 .Arrow {
 	z-index: 1;
 }
+
+.Arrow path {
+	pointer-events: auto;
+}

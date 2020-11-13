@@ -11,11 +11,13 @@
   height: 100%;
 }
 
-.App.connector-mode .Arrow circle {
+.App.connector-mode .Arrow circle,
+.App.connector-mode .Arrow .connectionDot {
 	pointer-events: none;
 }
 
-.App .Arrow circle {
+.App .Arrow circle,
+.App .Arrow .connectionDot {
 	cursor: pointer;
 	pointer-events: all;
 }
