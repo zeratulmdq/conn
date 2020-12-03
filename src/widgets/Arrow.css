@@ -5,3 +5,9 @@
 .Arrow path {
 	pointer-events: auto;
 }
+
+.Arrow text {
+  paint-order: stroke;
+  stroke: #ffffff;
+  stroke-width: 8px;
+}

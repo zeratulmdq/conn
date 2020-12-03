@@ -37,3 +37,20 @@
 .App.connector-mode .Sticky .snapping-point:hover ~ .auto-affordance {
   visibility: hidden;
 }
+
+#settings input {
+  margin-right: 10px;
+}
+
+#settings hr {
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+
+#settings .labelInput {
+  display: inline-block;
+  width: 150px;
+  border: solid 1px black;
+  background-color: white;
+  padding: 2px;
+}

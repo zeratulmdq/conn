@@ -1,7 +1,7 @@
 import React from "react";
 import "./Sticky.css";
 import "./Arrow.css";
-import { ArrowWidget, PointType, Position } from "../types";
+import { ArrowWidget, Point, PointType, Position } from "../types";
 
 type Direction = 'horizontal' | 'vertical' | 'other';
 
@@ -11,6 +11,7 @@ interface PropTypes {
   onDragSegmentEnd: (id: string, index: number, position?: number) => void;
   onDragSegment: (id: string, index: number, position: Position) => void;
   onDragSegmentStart: (id: string, index: number, position: Position) => void;
+  label: string;
 }
 
 interface State {
@@ -50,7 +51,7 @@ class Arrow extends React.PureComponent<PropTypes, State> {
   handleMouseMove = ({ clientX, clientY }: React.MouseEvent<SVGSVGElement, MouseEvent>) => {
     const { draggingSegmentNumber } = this.state;
     if(!this.state.draggingSegment) return;
-    
+
     const { start } = this.getPoints();
     
     if ((start.type === 'right' || start.type === 'left') && draggingSegmentNumber % 2 !== 0 ) {
@@ -132,8 +133,34 @@ class Arrow extends React.PureComponent<PropTypes, State> {
     })
     return withConnectionDot([
       ...arrowPath,
+      this.createLabel(points),
     ]);
   };
+
+  createLabel = (points: Point[]) => {
+    const { label } = this.props;
+    // super hacky sizing method
+    const labelSize = { width: 8.5 * label.length, height: 18 };
+    const middlePointIndex = Math.ceil(points.length / 2);
+    const middlePoint = points[middlePointIndex - 1];
+    const nextMiddlePoint = points[middlePointIndex];
+    const center = {
+      x:
+        middlePoint.x +
+        (nextMiddlePoint.x - middlePoint.x) / 2 -
+        labelSize.width / 2,
+      y:
+        middlePoint.y +
+        (nextMiddlePoint.y - middlePoint.y) / 2 +
+        labelSize.height / 4,
+    };
+    return (
+      <text key="label" transform={`matrix(1 0 0 1 ${center.x} ${center.y})`}>
+        {label}
+      </text>
+    );
+  };
+
 
   render() {
     const path = this.pathGenerator();

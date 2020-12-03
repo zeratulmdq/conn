@@ -46,6 +46,7 @@ interface State {
   selected: string[] | null;
   widgets: Record<string, Widget>;
   newSegment: boolean;
+  label: string;
 }
 
 class App extends React.Component<{}, State> {
@@ -62,6 +63,7 @@ class App extends React.Component<{}, State> {
     selected: null,
     widgets: {},
     newSegment: false,
+    label: 'label',
   };
   mousePosition: Position | null = null;
   mouseOverSticky: boolean = false;
@@ -786,6 +788,10 @@ class App extends React.Component<{}, State> {
     return chartBranchArrows.length > 0 ? chartBranchArrows[0] : null;
   }
 
+  handleLabelInput = (e: any) => {
+    this.setState({ label: e.target.textContent });
+  };
+
   // updates arrow points (start/end) in both position and type
   // draggingPosition is undefined when the arrow is connected to a start and
   // end widget
@@ -1203,7 +1209,7 @@ class App extends React.Component<{}, State> {
   }
 
   render() {
-    const { cursor, selected, widgets } = this.state;
+    const { cursor, label, selected, widgets } = this.state;
     return (
       <div>
         <div
@@ -1237,6 +1243,7 @@ class App extends React.Component<{}, State> {
             
             if (w.type === "arrow") {
               return <Arrow
+                label={label}
                 widget={w} key={w.id}
                 onDragPointStart={this.handleArrowPointDragStart}
                 onDragSegmentEnd={this.handleDragSegmentEnd}
@@ -1252,6 +1259,18 @@ class App extends React.Component<{}, State> {
           <Checkbox
             label="Stick To Convergent Widget Side"
             onCheckedChange={(checked) => this.setState({settings: { stickToConvergentWidgetSide: checked }})} />
+            <hr />
+          <div>
+            Label text:{" "}
+            <div
+              className="labelInput"
+              contentEditable="true"
+              suppressContentEditableWarning
+              onInput={this.handleLabelInput}
+            >
+              label
+            </div>
+          </div>
         </div>
       </div>
     );
