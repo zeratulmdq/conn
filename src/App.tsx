@@ -35,9 +35,12 @@ export const settingsStyle: React.CSSProperties = {
   padding: 10,
 };
 
+declare const window: any;
+
 interface State {
   settings:{
     stickToConvergentWidgetSide: boolean;
+    showLabels: boolean;
   };
   cursor: React.CSSProperties["cursor"];
   dragging: string[] | null;
@@ -46,7 +49,6 @@ interface State {
   selected: string[] | null;
   widgets: Record<string, Widget>;
   newSegment: boolean;
-  label: string;
 }
 
 class App extends React.Component<{}, State> {
@@ -55,6 +57,7 @@ class App extends React.Component<{}, State> {
   state: State = {
     settings :{
       stickToConvergentWidgetSide: false,
+      showLabels: false,
     },
     cursor: "auto",
     dragging: null,
@@ -63,7 +66,6 @@ class App extends React.Component<{}, State> {
     selected: null,
     widgets: {},
     newSegment: false,
-    label: 'label',
   };
   mousePosition: Position | null = null;
   mouseOverSticky: boolean = false;
@@ -426,7 +428,7 @@ class App extends React.Component<{}, State> {
   };
 
   handleKeyDown = (e: React.KeyboardEvent) => {
-    if(e.key === "c" || e.key === "C") {
+    if((e.key === "c" || e.key === "C") && !window.editingLabel) {
       const newCursor = this.state.cursor === "auto" ? "crosshair" : "auto";
       if(newCursor === "auto") {
         this.cancelArrowCreation();
@@ -787,10 +789,6 @@ class App extends React.Component<{}, State> {
     
     return chartBranchArrows.length > 0 ? chartBranchArrows[0] : null;
   }
-
-  handleLabelInput = (e: any) => {
-    this.setState({ label: e.target.textContent });
-  };
 
   // updates arrow points (start/end) in both position and type
   // draggingPosition is undefined when the arrow is connected to a start and
@@ -1209,7 +1207,7 @@ class App extends React.Component<{}, State> {
   }
 
   render() {
-    const { cursor, label, selected, widgets } = this.state;
+    const { cursor, selected, widgets } = this.state;
     return (
       <div>
         <div
@@ -1243,12 +1241,13 @@ class App extends React.Component<{}, State> {
             
             if (w.type === "arrow") {
               return <Arrow
-                label={label}
-                widget={w} key={w.id}
+                widget={w}
+                key={w.id}
                 onDragPointStart={this.handleArrowPointDragStart}
                 onDragSegmentEnd={this.handleDragSegmentEnd}
                 onDragSegment={this.handleDragSegment}
                 onDragSegmentStart={this.handleDragSementStart}
+                showLabels={this.state.settings.showLabels}
               />;
             }
             
@@ -1258,22 +1257,24 @@ class App extends React.Component<{}, State> {
         <div id="settings" style={settingsStyle}>
           <Checkbox
             label="Stick To Convergent Widget Side"
-            onCheckedChange={(checked) => this.setState({settings: { stickToConvergentWidgetSide: checked }})} />
-            <hr />
-          <div>
-            Label text:{" "}
-            <div
-              className="labelInput"
-              contentEditable="true"
-              suppressContentEditableWarning
-              onInput={this.handleLabelInput}
-            >
-              label
-            </div>
-          </div>
+            onCheckedChange={this.handleCheckStick} />
+          <hr />
+          <Checkbox
+            label="Show labels"
+            onCheckedChange={this.handleCheckLabels} />
         </div>
       </div>
     );
+  }
+
+  handleCheckStick = (checked: boolean) => {
+    const settings = { ...this.state.settings, stickToConvergentWidgetSide: checked };
+    this.setState({ settings });
+  }
+
+  handleCheckLabels = (checked: boolean) => {
+    const settings = { ...this.state.settings, showLabels: checked };
+    this.setState({ settings });
   }
 }
 

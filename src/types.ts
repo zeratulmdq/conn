@@ -45,6 +45,7 @@ export type ArrowWidget = W & {
   arrowType: ArrowType;
   chartBranch: ChartBranch | null;
   initialIsHorizontal: boolean;
+  showLabels: boolean;
 };
 
 export type Widget = StickyWidget | ArrowWidget;
@@ -71,6 +72,7 @@ export const arrowFactory = (spec: Partial<ArrowWidget>): ArrowWidget => ({
   arrowType: spec.arrowType || "initial",
   chartBranch: null,
   initialIsHorizontal: spec.initialIsHorizontal || true,
+  showLabels: spec.showLabels || false,
 });
 
 export const toOrientation = (type: PointType) : Orientation => {
